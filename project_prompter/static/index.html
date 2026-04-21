@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local Project Prompt Generator</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header class="app-header">
+  <span style="font-size:1.3rem">🔍</span>
+  <h1>Local Project Prompt Generator</h1>
+  <span class="badge local-badge">LOCAL FIRST</span>
+  <span class="badge" style="background:#2e3250;color:#8892a4;margin-left:auto;font-size:0.6rem">No code uploaded to cloud</span>
+</header>
+
+<div class="app-body">
+
+  <!-- Sidebar: Controls -->
+  <aside class="sidebar">
+
+    <!-- Project Input -->
+    <div>
+      <div class="section-title">📁 Project</div>
+      <div class="form-group">
+        <label for="projectPath">Local Project Path</label>
+        <input type="text" id="projectPath" placeholder="C:/Users/you/my-project or ./my-project" />
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Mode Selection -->
+    <div>
+      <div class="section-title">⚡ Analysis Mode</div>
+      <div class="mode-selector" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
+        <label class="mode-option" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card)">
+          <input type="radio" name="analysisMode" value="fast" id="modeFast" checked style="margin-top:3px" />
+          <div>
+            <div style="font-weight:600;font-size:0.8rem">⚡ Fast</div>
+            <div style="font-size:0.65rem;color:var(--text-muted)">Fastest. No Ollama. Static &amp; structural analysis only.</div>
+          </div>
+        </label>
+        <label class="mode-option" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card)">
+          <input type="radio" name="analysisMode" value="balanced" id="modeBalanced" style="margin-top:3px" />
+          <div>
+            <div style="font-weight:600;font-size:0.8rem">⚖ Balanced</div>
+            <div style="font-size:0.65rem;color:var(--text-muted)">Good default. Structural summaries + optional Ollama for top files.</div>
+          </div>
+        </label>
+        <label class="mode-option" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card)">
+          <input type="radio" name="analysisMode" value="deep" id="modeDeep" style="margin-top:3px" />
+          <div>
+            <div style="font-weight:600;font-size:0.8rem">🔬 Deep</div>
+            <div style="font-size:0.65rem;color:var(--text-muted)">More detailed but slower. Ollama on critical files when enabled.</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Settings -->
+    <div>
+      <div class="section-title">⚙️ Settings</div>
+
+      <div class="form-group">
+        <label for="targetModel">Target AI Model</label>
+        <select id="targetModel">
+          <option value="all" selected>All Models</option>
+          <option value="chatgpt">ChatGPT</option>
+          <option value="claude">Claude</option>
+          <option value="gemini">Gemini</option>
+          <option value="minimax">MiniMax</option>
+          <option value="generic">Generic</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="maxFiles">Max Files</label>
+          <input type="number" id="maxFiles" value="40" min="1" max="500" />
+        </div>
+        <div class="form-group">
+          <label for="maxChars">Max Chars/File</label>
+          <input type="number" id="maxChars" value="3000" min="500" max="50000" />
+        </div>
+      </div>
+
+      <!-- Ollama Toggle -->
+      <div class="toggle-row">
+        <label>Enable Ollama</label>
+        <label class="toggle">
+          <input type="checkbox" id="useOllama" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div id="ollamaSettings" style="display:none">
+        <div class="form-group" style="margin-top:10px">
+          <label for="ollamaModel">Ollama Model</label>
+          <select id="ollamaModel">
+            <option value="qwen2.5-coder:1.5b">qwen2.5-coder:1.5b</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="ollamaUrl">Ollama URL</label>
+          <input type="text" id="ollamaUrl" value="http://localhost:11434" />
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="checkOllama()" style="width:100%">
+          Check Ollama Status
+        </button>
+        <div id="ollamaStatus" style="margin-top:8px;font-size:0.75rem;color:var(--text-muted)"></div>
+      </div>
+
+      <!-- Cache Controls -->
+      <div class="divider" style="margin:10px 0"></div>
+      <div class="toggle-row">
+        <label>Use Cache</label>
+        <label class="toggle">
+          <input type="checkbox" id="useCache" checked />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row" style="margin-top:6px">
+        <label>Clear Cache Before Scan</label>
+        <label class="toggle">
+          <input type="checkbox" id="clearCache" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Scan Controls -->
+    <div>
+      <div class="section-title">🚀 Scan</div>
+      <button class="btn btn-primary" id="scanBtn" onclick="startScan()">
+        Start Scan
+      </button>
+      <div class="progress-bar" style="margin-top:10px">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="status-area" id="statusArea" style="margin-top:10px">
+        Ready. Enter a project path and click Start Scan.
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Actions -->
+    <div id="actionsSection" style="display:none">
+      <div class="section-title">📥 Download</div>
+      <div id="downloadLinks" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+
+  </aside>
+
+  <!-- Main: Results -->
+  <main class="main-content">
+
+    <div class="tabs-header" id="tabsHeader">
+      <button class="tab-btn active" onclick="showTab('summary')">Summary</button>
+      <button class="tab-btn" onclick="showTab('techstack')">Tech Stack</button>
+      <button class="tab-btn" onclick="showTab('filetree')">File Tree</button>
+      <button class="tab-btn" onclick="showTab('risks')">Risks</button>
+      <button class="tab-btn" onclick="showTab('chatgpt')">ChatGPT</button>
+      <button class="tab-btn" onclick="showTab('claude')">Claude</button>
+      <button class="tab-btn" onclick="showTab('gemini')">Gemini</button>
+      <button class="tab-btn" onclick="showTab('minimax')">MiniMax</button>
+      <button class="tab-btn" onclick="showTab('generic')">Generic</button>
+      <button class="tab-btn" onclick="showTab('scanreport')">Scan Report</button>
+      <button class="tab-btn" onclick="showTab('redaction')">Redaction</button>
+    </div>
+
+    <!-- Summary Tab -->
+    <div class="tab-content active" id="tab-summary">
+      <div class="tab-inner">
+        <div class="empty-state" id="emptyState">
+          <div class="icon">🔍</div>
+          <h3>No scan results yet</h3>
+          <p>Enter a local project path in the sidebar and click <strong>Start Scan</strong> to analyze your project.</p>
+          <p style="margin-top:8px;font-size:0.75rem;color:var(--text-dim)">
+            ✓ No code is uploaded to any cloud service.<br>
+            ✓ All analysis runs locally on your machine.<br>
+            ✓ Prompts are generated locally for you to copy manually.
+          </p>
+        </div>
+        <div id="summaryContent" style="display:none">
+          <div class="content-block markdown" id="summaryText"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tech Stack Tab -->
+    <div class="tab-content" id="tab-techstack">
+      <div class="tab-inner">
+        <div id="techStackContent">
+          <div class="empty-state">
+            <div class="icon">🛠</div>
+            <h3>No tech stack detected yet</h3>
+            <p>Run a scan to detect the technology stack.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- File Tree Tab -->
+    <div class="tab-content" id="tab-filetree">
+      <div class="tab-inner">
+        <div id="fileTreeContent">
+          <div class="empty-state">
+            <div class="icon">📂</div>
+            <h3>No file tree yet</h3>
+            <p>Run a scan to generate the file tree.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Risks Tab -->
+    <div class="tab-content" id="tab-risks">
+      <div class="tab-inner">
+        <div id="risksContent">
+          <div class="empty-state">
+            <div class="icon">⚠️</div>
+            <h3>No risk notes yet</h3>
+            <p>Run a scan to generate risk notes.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompt Tabs -->
+    <div class="tab-content" id="tab-chatgpt">
+      <div class="tab-inner" id="chatgpt-inner">
+        <div class="empty-state"><div class="icon">💬</div><h3>ChatGPT prompt not generated yet</h3><p>Run a scan with target model set to ChatGPT or All.</p></div>
+      </div>
+      <div class="prompt-actions" id="chatgpt-actions" style="display:none">
+        <button class="btn btn-secondary btn-sm" onclick="copyPrompt('chatgpt')">📋 Copy to Clipboard</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadPrompt('chatgpt')">⬇ Download</button>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-claude">
+      <div class="tab-inner" id="claude-inner">
+        <div class="empty-state"><div class="icon">🤖</div><h3>Claude prompt not generated yet</h3><p>Run a scan with target model set to Claude or All.</p></div>
+      </div>
+      <div class="prompt-actions" id="claude-actions" style="display:none">
+        <button class="btn btn-secondary btn-sm" onclick="copyPrompt('claude')">📋 Copy to Clipboard</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadPrompt('claude')">⬇ Download</button>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-gemini">
+      <div class="tab-inner" id="gemini-inner">
+        <div class="empty-state"><div class="icon">✨</div><h3>Gemini prompt not generated yet</h3><p>Run a scan with target model set to Gemini or All.</p></div>
+      </div>
+      <div class="prompt-actions" id="gemini-actions" style="display:none">
+        <button class="btn btn-secondary btn-sm" onclick="copyPrompt('gemini')">📋 Copy to Clipboard</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadPrompt('gemini')">⬇ Download</button>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-minimax">
+      <div class="tab-inner" id="minimax-inner">
+        <div class="empty-state"><div class="icon">⚡</div><h3>MiniMax prompt not generated yet</h3><p>Run a scan with target model set to MiniMax or All.</p></div>
+      </div>
+      <div class="prompt-actions" id="minimax-actions" style="display:none">
+        <button class="btn btn-secondary btn-sm" onclick="copyPrompt('minimax')">📋 Copy to Clipboard</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadPrompt('minimax')">⬇ Download</button>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-generic">
+      <div class="tab-inner" id="generic-inner">
+        <div class="empty-state"><div class="icon">📝</div><h3>Generic prompt not generated yet</h3><p>Run a scan with target model set to Generic or All.</p></div>
+      </div>
+      <div class="prompt-actions" id="generic-actions" style="display:none">
+        <button class="btn btn-secondary btn-sm" onclick="copyPrompt('generic')">📋 Copy to Clipboard</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadPrompt('generic')">⬇ Download</button>
+      </div>
+    </div>
+
+    <!-- Scan Report Tab -->
+    <div class="tab-content" id="tab-scanreport">
+      <div class="tab-inner">
+        <div id="scanReportContent">
+          <div class="empty-state"><div class="icon">📊</div><h3>No scan report yet</h3><p>Run a scan to generate the report.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Redaction Tab -->
+    <div class="tab-content" id="tab-redaction">
+      <div class="tab-inner">
+        <div id="redactionContent">
+          <div class="empty-state"><div class="icon">🔒</div><h3>No redaction report yet</h3><p>Run a scan to see what secrets were detected and redacted.</p></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

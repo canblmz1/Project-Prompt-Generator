@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "project-prompter"
+version = "1.0.0"
+description = "Local Project Prompt Generator — Scan local projects and generate optimized AI prompts without uploading code."
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Local Project Prompt Generator" }
+]
+keywords = ["ai", "prompt", "local", "ollama", "code-analysis", "chatgpt", "claude", "gemini"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Utilities",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "httpx>=0.25.0",
+]
+
+[project.scripts]
+project-prompter = "project_prompter.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/project-prompter"
+Repository = "https://github.com/YOUR_USERNAME/project-prompter"
+Issues = "https://github.com/YOUR_USERNAME/project-prompter/issues"
+
+[tool.setuptools.packages.find]
+include = ["project_prompter*"]
+
+[tool.setuptools.package-data]
+"project_prompter" = ["static/*", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["project_prompter"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
