@@ -26,9 +26,10 @@ def _file_hash(file_path: Path) -> str:
 
 
 def _cache_path(project_root: Path, file_path: Path, mode: str) -> Path:
-    rel = str(file_path.relative_to(project_root)).replace("\\", "/").replace("/", "_")
+    rel = str(file_path.relative_to(project_root)).replace("\\", "/")
+    rel_hash = hashlib.sha256(rel.encode()).hexdigest()[:12]
     key = _file_hash(file_path)
-    return _cache_dir(project_root) / f"{rel}__{mode}__{key}.json"
+    return _cache_dir(project_root) / f"{rel_hash}__{mode}__{key}.json"
 
 
 def load_cached(project_root: Path, file_path: Path, mode: str) -> Optional[Dict[str, Any]]:

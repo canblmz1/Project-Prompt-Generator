@@ -7,11 +7,12 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 try:
     from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
     from fastapi.exceptions import RequestValidationError
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
@@ -27,6 +28,8 @@ from .ollama_client import list_ollama_models, check_ollama_available, validate_
 
 # In-memory scan store
 _scans: Dict[str, Dict[str, Any]] = {}
+MAX_SCANS = 100
+_SCAN_EVICTION_BATCH = 10
 
 STATIC_DIR = Path(__file__).parent / "static"
 ALLOWED_SCAN_ROOT_ENV = "ALLOWED_SCAN_ROOT"
@@ -43,7 +46,7 @@ if WEB_AVAILABLE:
     class AnalyzeRequest(BaseModel):
         project_path: str
         output_path: str = "./output"
-        mode: str = "fast"
+        mode: Literal["fast", "balanced", "deep"] = "fast"
         model: str = "qwen2.5-coder:1.5b"
         ollama_url: str = "http://localhost:11434"
         max_files: Optional[int] = None       # None = use mode default
@@ -55,6 +58,17 @@ if WEB_AVAILABLE:
         extra_ignore_dirs: List[str] = []
 else:
     AnalyzeRequest = None  # type: ignore
+
+
+def _evict_old_scans() -> None:
+    """Remove the oldest scans when the in-memory scan store reaches its limit."""
+    while len(_scans) >= MAX_SCANS:
+        oldest_keys = sorted(
+            _scans.keys(),
+            key=lambda k: _scans[k].get("started_at", ""),
+        )[:_SCAN_EVICTION_BATCH]
+        for key in oldest_keys:
+            del _scans[key]
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
@@ -171,6 +185,13 @@ def create_app() -> "FastAPI":
         description="Scan local projects and generate optimized AI prompts — locally, privately.",
         version=__version__,
     )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:8787", "http://127.0.0.1:8787"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
 
     # Mount static files if directory exists
     if STATIC_DIR.exists():
@@ -268,6 +289,7 @@ def create_app() -> "FastAPI":
         request.output_path = str(output_path)
         request.ollama_url = ollama_url
 
+        _evict_old_scans()
         scan_id = str(uuid.uuid4())[:12]
 
         _scans[scan_id] = {
@@ -376,7 +398,7 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
             progress(f"  Cache cleared: {count} file(s) deleted.")
 
         # Run in thread pool to avoid blocking event loop
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         analysis = await loop.run_in_executor(
             None,
             lambda: analyze_project(options, progress_callback=progress),

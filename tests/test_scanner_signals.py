@@ -1,4 +1,4 @@
-from project_prompter.scanner import build_file_tree, scan_project
+from project_prompter.scanner import _safe_read, build_file_tree, scan_project
 
 def test_audio_binary_files_ignored_but_path_signal_can_be_used(tmp_path):
     # Create temp_audios directory
@@ -95,3 +95,15 @@ def test_extra_ignore_dirs_normalize_whitespace_and_slashes(tmp_path):
     assert "reports" in paths
     assert "reports/summary.py" not in paths
     assert "main.py" in paths
+
+
+def test_safe_read_zero_budget_uses_english_omission_marker(tmp_path):
+    file_path = tmp_path / "large.txt"
+    file_path.write_text("abcdef", encoding="utf-8")
+
+    content, error = _safe_read(file_path, max_chars=0)
+
+    assert error is None
+    assert content == "... [MIDDLE SECTION OMITTED \u2014 6 chars] ..."
+    assert "ORTA KISIM ATILDI" not in content
+    assert "karakter" not in content

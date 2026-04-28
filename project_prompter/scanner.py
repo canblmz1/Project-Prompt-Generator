@@ -247,9 +247,10 @@ def _safe_read(file_path: Path, max_chars: int) -> Tuple[str, Optional[str]]:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
         if len(content) > max_chars:
             if max_chars <= 0:
-                content = f"... [ORTA KISIM ATILDI \u2014 {len(content)} karakter] ..."
+                omitted_all = len(content)
+                content = f"... [MIDDLE SECTION OMITTED \u2014 {omitted_all} chars] ..."
             else:
-                marker_template = f"\n\n... [ORTA KISIM ATILDI \u2014 {len(content)} karakter] ...\n\n"
+                marker_template = f"\n\n... [MIDDLE SECTION OMITTED \u2014 {len(content)} chars] ...\n\n"
                 available = max_chars - len(marker_template)
                 if available <= 0:
                     head = ""
@@ -263,7 +264,7 @@ def _safe_read(file_path: Path, max_chars: int) -> Tuple[str, Optional[str]]:
                     omitted = len(content) - len(head) - len(tail)
                 content = (
                     head
-                    + f"\n\n... [ORTA KISIM ATILDI \u2014 {omitted} karakter] ...\n\n"
+                    + f"\n\n... [MIDDLE SECTION OMITTED \u2014 {omitted} chars] ...\n\n"
                     + tail
                 )
         return content, None

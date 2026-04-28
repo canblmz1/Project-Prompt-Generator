@@ -1,6 +1,7 @@
 """Tests for mode system, structural analysis, cache, trading detection, prompt quality, and web UI schema."""
 
 import asyncio
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,7 +19,7 @@ from project_prompter.structural_analyzer import (
     build_structural_summary,
     large_file_risk_note,
 )
-from project_prompter.cache_manager import load_cached, save_cached, clear_cache
+from project_prompter.cache_manager import load_cached, save_cached, clear_cache, _cache_path
 from project_prompter.prompt_templates._common import (
     build_analysis_metadata,
     build_evidence_disclaimer,
@@ -519,6 +520,20 @@ class TestCache:
         cached = load_cached(tmp_path, test_file, "fast")
         assert cached is None
 
+    def test_cache_path_hashes_relative_path_component(self, tmp_path):
+        nested = tmp_path / "dir__name"
+        nested.mkdir()
+        test_file = nested / "file.py"
+        test_file.write_text("print('hello')")
+
+        cache_path = _cache_path(tmp_path, test_file, "fast")
+        rel = "dir__name/file.py"
+        expected_rel_hash = hashlib.sha256(rel.encode()).hexdigest()[:12]
+
+        assert cache_path.name.startswith(f"{expected_rel_hash}__fast__")
+        assert "dir__name" not in cache_path.name
+        assert "file.py" not in cache_path.name
+
 
 # ===========================================================================
 # 13. Fast mode purity — no Ollama calls
@@ -646,6 +661,44 @@ class TestWebUISchema:
 
         req = AnalyzeRequest(project_path="/test", extra_ignore_dirs=["fixtures"])
         assert req.extra_ignore_dirs == ["fixtures"]
+
+    def test_invalid_mode_rejected_by_request_schema(self):
+        try:
+            from pydantic import ValidationError
+            from project_prompter.web import AnalyzeRequest, WEB_AVAILABLE
+        except ImportError:
+            pytest.skip("FastAPI not available")
+
+        if not WEB_AVAILABLE:
+            pytest.skip("FastAPI not available")
+
+        with pytest.raises(ValidationError):
+            AnalyzeRequest(project_path="/test", mode="turbo")
+
+    def test_scan_store_eviction(self):
+        from project_prompter.web import (
+            MAX_SCANS,
+            _SCAN_EVICTION_BATCH,
+            _evict_old_scans,
+            _scans,
+        )
+
+        previous_scans = dict(_scans)
+        _scans.clear()
+        try:
+            for i in range(MAX_SCANS):
+                _scans[f"scan_{i:04d}"] = {"started_at": f"2026-01-01T00:00:{i:04d}Z"}
+
+            assert len(_scans) == MAX_SCANS
+
+            _evict_old_scans()
+
+            assert len(_scans) == MAX_SCANS - _SCAN_EVICTION_BATCH
+            assert "scan_0000" not in _scans
+            assert f"scan_{MAX_SCANS - 1:04d}" in _scans
+        finally:
+            _scans.clear()
+            _scans.update(previous_scans)
 
     def test_run_analysis_task_passes_extra_ignore_dirs(self, tmp_path, monkeypatch):
         from project_prompter import analyzer, web

@@ -169,10 +169,12 @@ def test_safe_read_keeps_head_and_tail_for_large_files(tmp_path):
 
     assert error is None
     assert len(content) <= 100
-    assert content.startswith("H" * 37)
-    assert content.endswith("T" * 17)
+    assert content.startswith("H" * 36)
+    assert content.endswith("T" * 16)
     assert "M" * 20 not in content
-    assert "... [ORTA KISIM ATILDI \u2014 106 karakter] ..." in content
+    assert "... [MIDDLE SECTION OMITTED \u2014 108 chars] ..." in content
+    assert "ORTA KISIM ATILDI" not in content
+    assert "karakter" not in content
 
 
 def test_safe_read_leaves_small_files_unchanged(tmp_path):

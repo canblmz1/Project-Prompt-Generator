@@ -132,6 +132,33 @@ def test_validate_output_path_honors_project_prompter_output_root_fallback(tmp_p
 
 
 @pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
+def test_cors_preflight_allows_only_local_web_ui_origin():
+    client = TestClient(web.create_app())
+
+    allowed = client.options(
+        "/api/analyze",
+        headers={
+            "Origin": "http://localhost:8787",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    blocked = client.options(
+        "/api/analyze",
+        headers={
+            "Origin": "http://example.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:8787"
+    assert blocked.status_code == 400
+    assert "access-control-allow-origin" not in blocked.headers
+
+
+@pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
 def test_ollama_models_rejects_non_local_url_before_network_call(monkeypatch):
     def fail_if_called(*args, **kwargs):
         raise AssertionError("Ollama availability check should not run")
@@ -146,6 +173,28 @@ def test_ollama_models_rejects_non_local_url_before_network_call(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid Ollama URL"
+
+
+@pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
+def test_analyze_rejects_invalid_mode_before_queueing(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(tmp_path)
+    before_scans = dict(web._scans)
+    client = TestClient(web.create_app())
+
+    response = client.post(
+        "/api/analyze",
+        json={
+            "project_path": str(project),
+            "output_path": "output",
+            "mode": "turbo",
+            "ollama_url": "http://localhost:11434",
+        },
+    )
+
+    assert response.status_code == 422
+    assert web._scans == before_scans
 
 
 @pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")

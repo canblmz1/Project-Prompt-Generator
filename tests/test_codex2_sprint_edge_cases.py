@@ -4,11 +4,18 @@ from pathlib import Path
 
 import pytest
 
+from project_prompter import web
 from project_prompter.analyzer import analyze_project
+from project_prompter.cache_manager import _cache_path, load_cached, save_cached
 from project_prompter.domain_classifier import detect_domain
 from project_prompter.models import ScanOptions
 from project_prompter.scanner import _safe_read
 from project_prompter.structural_analyzer import build_structural_summary
+
+try:
+    from fastapi.testclient import TestClient
+except ImportError:  # pragma: no cover - optional web dependency
+    TestClient = None  # type: ignore
 
 
 def test_dry_run_does_not_call_summarization_or_export(tmp_path, monkeypatch):
@@ -50,6 +57,112 @@ def test_safe_read_truncated_preview_respects_max_chars_budget(tmp_path):
 
     assert error is None
     assert len(content) <= 100
+
+
+def test_cache_path_hash_keeps_separator_collision_candidates_distinct(tmp_path):
+    first = tmp_path / "src" / "api_client.py"
+    second = tmp_path / "src_api" / "client.py"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("FIRST = True\n", encoding="utf-8")
+    second.write_text("SECOND = True\n", encoding="utf-8")
+
+    first_cache_path = _cache_path(tmp_path, first, "fast")
+    second_cache_path = _cache_path(tmp_path, second, "fast")
+
+    assert first_cache_path.name != second_cache_path.name
+    assert "src" not in first_cache_path.name
+    assert "api_client.py" not in first_cache_path.name
+
+    save_cached(tmp_path, first, "fast", {"structural_summary": "first"})
+    save_cached(tmp_path, second, "fast", {"structural_summary": "second"})
+
+    assert load_cached(tmp_path, first, "fast") == {"structural_summary": "first"}
+    assert load_cached(tmp_path, second, "fast") == {"structural_summary": "second"}
+
+
+@pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
+def test_cors_preflight_allows_127_origin_and_blocks_unlisted_methods():
+    client = TestClient(web.create_app())
+
+    allowed = client.options(
+        "/api/analyze",
+        headers={
+            "Origin": "http://127.0.0.1:8787",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    blocked_method = client.options(
+        "/api/analyze",
+        headers={
+            "Origin": "http://127.0.0.1:8787",
+            "Access-Control-Request-Method": "DELETE",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == "http://127.0.0.1:8787"
+    assert blocked_method.status_code == 400
+
+
+@pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
+def test_analyze_endpoint_evicts_before_queueing_new_scan(tmp_path, monkeypatch):
+    previous_scans = dict(web._scans)
+    web._scans.clear()
+
+    async def noop_analysis_task(*args, **kwargs):
+        return None
+
+    try:
+        for i in range(web.MAX_SCANS):
+            web._scans[f"old_{i:04d}"] = {"started_at": f"2026-01-01T00:00:{i:04d}Z"}
+
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(web, "_run_analysis_task", noop_analysis_task)
+
+        client = TestClient(web.create_app())
+        response = client.post(
+            "/api/analyze",
+            json={
+                "project_path": str(project),
+                "output_path": "output",
+                "mode": "fast",
+                "ollama_url": "http://localhost:11434",
+            },
+        )
+
+        assert response.status_code == 200
+        scan_id = response.json()["scan_id"]
+        assert scan_id in web._scans
+        assert len(web._scans) == web.MAX_SCANS - web._SCAN_EVICTION_BATCH + 1
+        assert "old_0000" not in web._scans
+        assert "old_0009" not in web._scans
+        assert "old_0010" in web._scans
+    finally:
+        web._scans.clear()
+        web._scans.update(previous_scans)
+
+
+def test_evict_old_scans_reduces_already_over_limit_store_to_max():
+    previous_scans = dict(web._scans)
+    web._scans.clear()
+    over_limit_count = web.MAX_SCANS + web._SCAN_EVICTION_BATCH + 1
+
+    try:
+        for i in range(over_limit_count):
+            web._scans[f"scan_{i:04d}"] = {"started_at": f"2026-01-01T00:00:{i:04d}Z"}
+
+        web._evict_old_scans()
+
+        assert len(web._scans) <= web.MAX_SCANS
+        assert "scan_0000" not in web._scans
+    finally:
+        web._scans.clear()
+        web._scans.update(previous_scans)
 
 
 def test_go_structural_summary_extracts_receiver_methods():
