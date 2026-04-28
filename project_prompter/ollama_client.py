@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from typing import List, Optional, Tuple
+from urllib.parse import urlparse
 from urllib import request, error as urllib_error
 
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_MODEL = "llama3:latest"
+ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1", "::1"}
 REQUEST_TIMEOUT = 90  # seconds — reduced from 120
 
 # Optimized generation options: short, focused, low temperature
@@ -17,6 +19,31 @@ OLLAMA_OPTIONS = {
     "num_ctx": 4096,
     "num_predict": 300,
 }
+
+
+def validate_ollama_url(url: str) -> str:
+    """Validate that an Ollama base URL points at a local loopback host."""
+    if not isinstance(url, str):
+        raise ValueError("Ollama URL is required")
+
+    candidate = url.strip()
+    if not candidate:
+        raise ValueError("Ollama URL is required")
+
+    parsed = urlparse(candidate)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("Ollama URL must use http or https")
+
+    try:
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("Ollama URL is malformed") from exc
+
+    if hostname not in ALLOWED_OLLAMA_HOSTS:
+        raise ValueError("Ollama URL host must be local")
+
+    return candidate
 
 
 def check_ollama_available(ollama_url: str = DEFAULT_OLLAMA_URL) -> Tuple[bool, Optional[str]]:

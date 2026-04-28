@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .filters import (
-    ALLOWED_EXTENSIONS,
     is_allowed_extension,
     is_lock_file,
     is_minified_file,
@@ -19,13 +18,26 @@ from .filters import (
 from .models import RedactionFinding, ScannedFile
 
 
-def build_file_tree(project_root: Path, max_depth: int = 8) -> str:
+def build_file_tree(
+    project_root: Path,
+    max_depth: int = 8,
+    extra_ignore_dirs: Optional[List[str]] = None,
+) -> str:
     """
     Build a text-based file tree for the project, respecting ignore rules.
     Returns a markdown code block string.
     """
     lines: List[str] = [f"{project_root.name}/"]
-    _walk_tree(project_root, project_root, lines, prefix="", depth=0, max_depth=max_depth)
+    extra = _normalize_extra_ignore_dirs(extra_ignore_dirs)
+    _walk_tree(
+        project_root,
+        project_root,
+        lines,
+        prefix="",
+        depth=0,
+        max_depth=max_depth,
+        extra_ignore_dirs=extra,
+    )
     return "\n".join(lines)
 
 
@@ -36,6 +48,7 @@ def _walk_tree(
     prefix: str,
     depth: int,
     max_depth: int,
+    extra_ignore_dirs: frozenset[str],
 ) -> None:
     if depth > max_depth:
         return
@@ -45,7 +58,11 @@ def _walk_tree(
     except PermissionError:
         return
 
-    dirs = [e for e in entries if e.is_dir() and not should_ignore_folder(e.name)]
+    dirs = [
+        e
+        for e in entries
+        if e.is_dir() and not should_ignore_folder(e.name, extra_ignore_dirs)
+    ]
     files = [e for e in entries if e.is_file()]
 
     all_entries = dirs + files
@@ -64,13 +81,22 @@ def _walk_tree(
 
         if entry.is_dir():
             extension = "    " if is_last else "│   "
-            _walk_tree(root, entry, lines, prefix + extension, depth + 1, max_depth)
+            _walk_tree(
+                root,
+                entry,
+                lines,
+                prefix + extension,
+                depth + 1,
+                max_depth,
+                extra_ignore_dirs,
+            )
 
 
 def scan_project(
     project_root: Path,
     max_files: int = 120,
     max_chars_per_file: int = 8000,
+    extra_ignore_dirs: Optional[List[str]] = None,
 ) -> Tuple[List[ScannedFile], List[RedactionFinding]]:
     """
     Recursively scan a project directory.
@@ -82,6 +108,7 @@ def scan_project(
     """
     scanned: List[ScannedFile] = []
     redaction_findings: List[RedactionFinding] = []
+    extra = _normalize_extra_ignore_dirs(extra_ignore_dirs)
 
     for dirpath, dirnames, filenames in os.walk(project_root):
         current_dir = Path(dirpath)
@@ -89,7 +116,7 @@ def scan_project(
         # Prune ignored directories in-place so os.walk skips them
         new_dirnames = []
         for d in dirnames:
-            if should_ignore_folder(d):
+            if should_ignore_folder(d, extra):
                 # Add the folder itself as a skipped entry so Domain Classifier can see its name
                 rel_d = str((current_dir / d).relative_to(project_root)).replace("\\", "/")
                 scanned.append(
@@ -203,12 +230,42 @@ def scan_project(
     return scanned, redaction_findings
 
 
+def _normalize_extra_ignore_dirs(extra_ignore_dirs: Optional[List[str]]) -> frozenset[str]:
+    """Normalize user-provided folder names for exact-name matching."""
+    if not extra_ignore_dirs:
+        return frozenset()
+    return frozenset(
+        name.strip().strip("/\\")
+        for name in extra_ignore_dirs
+        if name.strip().strip("/\\")
+    )
+
+
 def _safe_read(file_path: Path, max_chars: int) -> Tuple[str, Optional[str]]:
     """Read a file safely, truncating to max_chars. Returns (content, error)."""
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
         if len(content) > max_chars:
-            content = content[:max_chars] + f"\n\n... [TRUNCATED at {max_chars} chars]"
+            if max_chars <= 0:
+                content = f"... [ORTA KISIM ATILDI \u2014 {len(content)} karakter] ..."
+            else:
+                marker_template = f"\n\n... [ORTA KISIM ATILDI \u2014 {len(content)} karakter] ...\n\n"
+                available = max_chars - len(marker_template)
+                if available <= 0:
+                    head = ""
+                    tail = ""
+                    omitted = len(content)
+                else:
+                    head_size = int(available * 0.70)
+                    tail_size = available - head_size
+                    head = content[:head_size]
+                    tail = content[-tail_size:] if tail_size else ""
+                    omitted = len(content) - len(head) - len(tail)
+                content = (
+                    head
+                    + f"\n\n... [ORTA KISIM ATILDI \u2014 {omitted} karakter] ...\n\n"
+                    + tail
+                )
         return content, None
     except PermissionError:
         return "", "permission_denied"

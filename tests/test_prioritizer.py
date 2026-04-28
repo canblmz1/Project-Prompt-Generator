@@ -1,6 +1,5 @@
 """Tests for prioritizer.py — file prioritization."""
 
-import pytest
 from pathlib import Path
 
 from project_prompter.models import ScannedFile

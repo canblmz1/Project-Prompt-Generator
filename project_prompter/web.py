@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import threading
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,14 +20,19 @@ try:
 except ImportError:
     WEB_AVAILABLE = False
 
+from . import __version__
 from .mode_config import MODE_DEFAULTS, get_mode_defaults
 from .models import ScanOptions
-from .ollama_client import list_ollama_models, check_ollama_available
+from .ollama_client import list_ollama_models, check_ollama_available, validate_ollama_url
 
 # In-memory scan store
 _scans: Dict[str, Dict[str, Any]] = {}
 
 STATIC_DIR = Path(__file__).parent / "static"
+ALLOWED_SCAN_ROOT_ENV = "ALLOWED_SCAN_ROOT"
+PROJECT_PROMPTER_ALLOWED_SCAN_ROOT_ENV = "PROJECT_PROMPTER_ALLOWED_SCAN_ROOT"
+OUTPUT_ROOT_ENV = "OUTPUT_ROOT"
+PROJECT_PROMPTER_OUTPUT_ROOT_ENV = "PROJECT_PROMPTER_OUTPUT_ROOT"
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +52,113 @@ if WEB_AVAILABLE:
         target_model: str = "all"
         use_cache: bool = True
         clear_cache: bool = False
+        extra_ignore_dirs: List[str] = []
 else:
     AnalyzeRequest = None  # type: ignore
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    """Return True when path is root or a descendant of root."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_configured_root(
+    env_var: str,
+    default: Path | None = None,
+    fallback_env_vars: tuple[str, ...] = (),
+) -> Path | None:
+    value = None
+    for candidate in (env_var, *fallback_env_vars):
+        value = os.environ.get(candidate)
+        if value:
+            break
+
+    if not value:
+        return default.resolve() if default is not None else None
+
+    root = Path(value).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"{env_var} must point to an existing directory")
+    return root
+
+
+def _is_sensitive_project_root(path: Path) -> bool:
+    if path == Path(path.anchor).resolve():
+        return True
+
+    sensitive_roots: list[Path] = []
+    if os.name == "nt":
+        system_root = os.environ.get("SystemRoot")
+        if system_root:
+            sensitive_roots.append(Path(system_root).expanduser().resolve())
+    else:
+        sensitive_roots.extend(Path(p).resolve() for p in ("/etc", "/proc", "/sys", "/dev"))
+
+    return any(path == root or _is_relative_to(path, root) for root in sensitive_roots)
+
+
+def _validate_project_path(project_path: str) -> Path:
+    try:
+        raw_path = Path(project_path).expanduser()
+        resolved = raw_path.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("project_path not allowed") from exc
+
+    if not resolved.is_dir() or _is_sensitive_project_root(resolved):
+        raise ValueError("project_path not allowed")
+
+    try:
+        allowed_root = _resolve_configured_root(
+            ALLOWED_SCAN_ROOT_ENV,
+            fallback_env_vars=(PROJECT_PROMPTER_ALLOWED_SCAN_ROOT_ENV,),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("project_path not allowed") from exc
+    if allowed_root is not None and not _is_relative_to(resolved, allowed_root):
+        raise ValueError("project_path not allowed")
+    if (
+        allowed_root is None
+        and not raw_path.is_absolute()
+        and not _is_relative_to(resolved, Path.cwd().resolve())
+    ):
+        raise ValueError("project_path not allowed")
+
+    return resolved
+
+
+def _validate_output_path(output_path: str) -> Path:
+    try:
+        resolved = Path(output_path).expanduser().resolve()
+        output_root = _resolve_configured_root(
+            OUTPUT_ROOT_ENV,
+            Path.cwd(),
+            fallback_env_vars=(PROJECT_PROMPTER_OUTPUT_ROOT_ENV,),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("output_path not allowed") from exc
+
+    if output_root is None or not _is_relative_to(resolved, output_root):
+        raise ValueError("output_path not allowed")
+    if resolved.exists() and not resolved.is_dir():
+        raise ValueError("output_path not allowed")
+
+    return resolved
+
+
+def _validate_analysis_inputs(request: Any) -> tuple[Path, Path, str]:
+    project_path = _validate_project_path(request.project_path)
+    output_path = _validate_output_path(request.output_path)
+
+    try:
+        ollama_url = validate_ollama_url(request.ollama_url)
+    except ValueError as exc:
+        raise ValueError("Invalid Ollama URL") from exc
+
+    return project_path, output_path, ollama_url
 
 
 def create_app() -> "FastAPI":
@@ -60,7 +169,7 @@ def create_app() -> "FastAPI":
     app = FastAPI(
         title="Local Project Prompt Generator",
         description="Scan local projects and generate optimized AI prompts — locally, privately.",
-        version="1.0.0",
+        version=__version__,
     )
 
     # Mount static files if directory exists
@@ -105,7 +214,7 @@ def create_app() -> "FastAPI":
         """Health check endpoint."""
         return {
             "status": "ok",
-            "version": "1.0.0",
+            "version": __version__,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "security_note": "This tool does not upload code to any external service.",
         }
@@ -113,6 +222,11 @@ def create_app() -> "FastAPI":
     @app.get("/api/ollama-models")
     async def ollama_models(ollama_url: str = "http://localhost:11434"):
         """List available Ollama models."""
+        try:
+            ollama_url = validate_ollama_url(ollama_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid Ollama URL") from exc
+
         available, error = check_ollama_available(ollama_url)
         if not available:
             return JSONResponse(
@@ -145,6 +259,15 @@ def create_app() -> "FastAPI":
     @app.post("/api/analyze")
     async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
         """Start a project analysis scan."""
+        try:
+            project_path, output_path, ollama_url = _validate_analysis_inputs(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        request.project_path = str(project_path)
+        request.output_path = str(output_path)
+        request.ollama_url = ollama_url
+
         scan_id = str(uuid.uuid4())[:12]
 
         _scans[scan_id] = {
@@ -217,7 +340,8 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
         scan["progress"].append(msg)
 
     try:
-        output_path = Path(request.output_path) / scan_id
+        project_path, output_base_path, ollama_url = _validate_analysis_inputs(request)
+        output_path = output_base_path / scan_id
         mode = request.mode
         defaults = get_mode_defaults(mode)
 
@@ -231,10 +355,10 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
             use_ollama = False
 
         options = ScanOptions(
-            project_path=Path(request.project_path),
+            project_path=project_path,
             output_path=output_path,
             model=request.model,
-            ollama_url=request.ollama_url,
+            ollama_url=ollama_url,
             max_files=max_files,
             max_chars_per_file=max_chars,
             use_ollama=use_ollama,
@@ -243,11 +367,12 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
             use_cache=request.use_cache,
             clear_cache=False,  # handled below
             ollama_max_files=defaults["ollama_max_files"],
+            extra_ignore_dirs=list(request.extra_ignore_dirs),
         )
 
         # Clear cache if requested
         if request.clear_cache:
-            count = do_clear_cache(Path(request.project_path).resolve())
+            count = do_clear_cache(project_path)
             progress(f"  Cache cleared: {count} file(s) deleted.")
 
         # Run in thread pool to avoid blocking event loop

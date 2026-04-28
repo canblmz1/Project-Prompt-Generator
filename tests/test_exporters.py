@@ -1,8 +1,6 @@
 """Tests for exporters.py — output file generation."""
 
 import json
-import pytest
-import tempfile
 from pathlib import Path
 
 from project_prompter.exporters import export_all

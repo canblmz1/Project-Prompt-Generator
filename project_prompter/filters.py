@@ -96,9 +96,12 @@ ALLOWED_EXTENSIONS: set[str] = {
     ".jsx",
     ".mjs",
     ".cjs",
+    ".go",
     ".json",
     ".md",
     ".py",
+    ".rb",
+    ".rs",
     ".php",
     ".java",
     ".cs",
@@ -193,7 +196,7 @@ SECRET_PATTERNS: List[Tuple[str, str, str]] = [
     ),
     (
         "CONNECTION_STRING",
-        r'(?i)(connection[_\-]?string|database[_\-]?url|db[_\-]?url)\s*[=:]\s*["\']?(.*?://[^@\s]+:[^@\s]+@[^\s"\']+)["\']?',
+        r'(?i)(connection[_\-]?string|database[_\-]?url|db[_\-]?url)\s*[=:]\s*["\']?([a-zA-Z][a-zA-Z0-9+\-.]{1,20}://[^\s"\'@]{1,100}:[^\s"\'@]{1,100}@[^\s"\']{1,200})["\']?',
         "[REDACTED_SECRET]",
     ),
     (
@@ -209,9 +212,9 @@ SECRET_PATTERNS: List[Tuple[str, str, str]] = [
 ]
 
 
-def should_ignore_folder(folder_name: str) -> bool:
+def should_ignore_folder(folder_name: str, extra: frozenset[str] = frozenset()) -> bool:
     """Return True if a folder should be skipped entirely."""
-    return folder_name in IGNORED_FOLDERS
+    return folder_name in IGNORED_FOLDERS or folder_name in extra
 
 
 def should_ignore_file(file_path: Path) -> Tuple[bool, Optional[str]]:
@@ -294,7 +297,6 @@ def _build_replacement(match: re.Match, placeholder: str) -> str:
     # For patterns with 2 groups: group(1) = key, group(2) = value
     try:
         if match.lastindex and match.lastindex >= 2:
-            key_part = match.group(1)
             return full.replace(match.group(2), placeholder)
     except IndexError:
         pass

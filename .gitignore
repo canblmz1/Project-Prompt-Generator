@@ -54,3 +54,5 @@ id_ed25519
 # OS
 .DS_Store
 Thumbs.db
+
+ai-context/

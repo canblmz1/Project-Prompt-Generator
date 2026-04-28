@@ -1,0 +1,68 @@
+project:
+  name: local-prmpt
+  repo_path: .
+  default_branch: main
+  test_command: pytest
+  build_command: python -m build
+  lint_command: ruff check .
+execution:
+  mode: manual-runner
+  use_api_keys: false
+  human_approval_before_merge: true
+  stop_on_test_failure: true
+  never_auto_merge: true
+agents:
+  desktop_tech_lead:
+    type: manual
+    role: Tech Lead / Product Owner
+    command: ''
+    mode: interactive
+    model: ''
+    can_edit: false
+  claude_security:
+    type: cli
+    role: Security Architect and Final Reviewer
+    command: claude
+    mode: interactive
+    model: sonnet
+    can_edit: false
+  codex_builder:
+    type: cli
+    role: Patch Implementer and Feature Builder
+    command: codex
+    mode: interactive
+    model: ''
+    can_edit: true
+  opencode_tester:
+    type: cli
+    role: Tester, Regression and Small Patch Agent
+    command: opencode
+    mode: interactive
+    model: ''
+    can_edit: true
+security:
+  profile: auto
+  lead_agent: claude_security
+  final_gate_agent: claude_security
+  allow_auto_security_fixes: false
+  require_review_after_each_patch: true
+safety:
+  block_secret_files: true
+  blocked_files:
+  - .env
+  - .env.*
+  - '*.pem'
+  - '*.key'
+  - '*.p12'
+  - '*.pfx'
+  - secrets.*
+  - id_rsa
+  - id_ed25519
+  blocked_directories:
+  - .git
+  - node_modules
+  - .venv
+  - dist
+  - build
+  - .next
+  never_auto_merge: true

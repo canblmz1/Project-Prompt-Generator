@@ -58,6 +58,13 @@ Security note:
         help="Output directory for generated files (default: ./output)",
     )
 
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Preview selected files and detected technologies without writing output files.",
+    )
+
     # -----------------------------------------------------------------------
     # Mode system
     # -----------------------------------------------------------------------
@@ -123,6 +130,18 @@ Security note:
         default=None,
         metavar="N",
         help="Maximum characters to read per file (default: set by mode)",
+    )
+
+    # -----------------------------------------------------------------------
+    # Scan filters
+    # -----------------------------------------------------------------------
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        dest="exclude",
+        metavar="NAME",
+        help="Directory name to exclude from scanning. Can be used multiple times.",
     )
 
     # -----------------------------------------------------------------------
@@ -261,8 +280,10 @@ def _resolve_options(args: argparse.Namespace) -> ScanOptions:
         mode=mode,
         use_cache=use_cache,
         clear_cache=args.clear_cache,
+        dry_run=getattr(args, "dry_run", False),
         ollama_max_files=defaults["ollama_max_files"],
         strict_ollama=args.strict_ollama,
+        extra_ignore_dirs=list(getattr(args, "exclude", []) or []),
     )
 
 
@@ -312,9 +333,12 @@ def _run_scan(args: argparse.Namespace) -> int:
 
     # Clear cache before analysis if requested
     if options.clear_cache:
-        from .cache_manager import clear_cache
-        count = clear_cache(project_path.resolve())
-        print(f"Cache cleared: {count} file(s) deleted.")
+        if options.dry_run:
+            print("Dry run: cache clear skipped.")
+        else:
+            from .cache_manager import clear_cache
+            count = clear_cache(project_path.resolve())
+            print(f"Cache cleared: {count} file(s) deleted.")
 
     print(f"Local Project Prompt Generator v{__version__}")
     print(f"Project: {project_path.resolve()}")
@@ -323,15 +347,22 @@ def _run_scan(args: argparse.Namespace) -> int:
     print(f"Ollama: {'disabled' if not options.use_ollama else f'{options.model} @ {options.ollama_url}'}")
     print(f"Max files: {options.max_files} | Max chars/file: {options.max_chars_per_file}")
     print(f"Cache: {'enabled' if options.use_cache else 'disabled'}")
+    if options.dry_run:
+        print("Dry run: enabled (no output files will be written)")
+    if options.extra_ignore_dirs:
+        print(f"Extra excludes: {', '.join(options.extra_ignore_dirs)}")
     print()
 
     if options.mode == "deep":
-        print("⚠ Deep mode may take longer on large projects.")
+        print("WARNING: Deep mode may take longer on large projects.")
         print()
 
     try:
         analyze_project(options, progress_callback=print)
-        print(f"\n✓ Output written to: {Path(args.output).resolve()}")
+        if options.dry_run:
+            print("\nDry run complete. No output files were written.")
+        else:
+            print(f"\nOutput written to: {Path(args.output).resolve()}")
         return 0
     except ValueError as e:
         print(f"\nError: {e}", file=sys.stderr)

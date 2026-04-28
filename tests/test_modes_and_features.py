@@ -1,19 +1,16 @@
 """Tests for mode system, structural analysis, cache, trading detection, prompt quality, and web UI schema."""
 
-import json
-import os
-import tempfile
+import asyncio
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 from project_prompter.mode_config import (
     MODE_DEFAULTS,
-    VALID_MODES,
     get_mode_defaults,
     evidence_level_for_mode,
-    analysis_type_label,
 )
 from project_prompter.models import ScanOptions, ScanMetadata, ProjectAnalysis, TechStack, ScannedFile
 from project_prompter.filters import should_ignore_folder, should_ignore_file, secret_file_category
@@ -25,10 +22,9 @@ from project_prompter.cache_manager import load_cached, save_cached, clear_cache
 from project_prompter.prompt_templates._common import (
     build_analysis_metadata,
     build_evidence_disclaimer,
-    build_special_domain_section,
-    build_tech_stack_table
+    build_special_domain_section
 )
-from project_prompter.cli import _validate_flags, _resolve_options, create_parser
+from project_prompter.cli import create_parser, _validate_flags, _resolve_options
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +95,7 @@ def _make_namespace(**kwargs):
         "strict_ollama": False,
         "max_files": None,
         "max_chars_per_file": None,
+        "exclude": [],
         "use_cache": False,
         "no_cache": False,
         "clear_cache": False,
@@ -194,6 +191,51 @@ class TestModePrecedence:
         opts = _resolve_options(_make_namespace(mode="deep"))
         assert opts.max_files == 80
         assert opts.max_chars_per_file == 6000
+
+
+# ===========================================================================
+# 3b. User-defined excludes
+# ===========================================================================
+
+class TestUserDefinedExcludes:
+    def test_parser_accepts_repeated_exclude(self):
+        args = create_parser().parse_args([
+            "/test",
+            "--exclude", "data",
+            "--exclude", "fixtures",
+        ])
+        assert args.exclude == ["data", "fixtures"]
+
+    def test_resolve_options_sets_extra_ignore_dirs(self):
+        opts = _resolve_options(_make_namespace(exclude=["data", "fixtures"]))
+        assert opts.extra_ignore_dirs == ["data", "fixtures"]
+
+    def test_analyze_project_applies_extra_ignore_dirs(self, tmp_path):
+        from project_prompter.analyzer import analyze_project
+
+        project = tmp_path / "project"
+        project.mkdir()
+        data_dir = project / "data"
+        data_dir.mkdir()
+        (data_dir / "raw.py").write_text("SECRET = 'not read'")
+        (project / "main.py").write_text("print('hello')")
+
+        options = ScanOptions(
+            project_path=project,
+            output_path=tmp_path / "out",
+            max_files=5,
+            max_chars_per_file=100,
+            use_ollama=False,
+            target_model="generic",
+            extra_ignore_dirs=["data"],
+        )
+
+        analysis = analyze_project(options, progress_callback=lambda _msg: None)
+
+        assert "data" not in analysis.file_tree
+        assert "raw.py" not in analysis.file_tree
+        assert [f.relative_path for f in analysis.important_files] == ["main.py"]
+        assert analysis.scan_metadata.files_skipped == 1
 
 
 # ===========================================================================
@@ -562,6 +604,7 @@ class TestWebUISchema:
         assert req.mode == "fast"
         assert req.use_ollama is False
         assert req.use_cache is True
+        assert req.extra_ignore_dirs == []
 
     def test_minimal_payload_accepted(self):
         """Only project_path is truly required."""
@@ -577,6 +620,7 @@ class TestWebUISchema:
         assert req.mode == "fast"
         assert req.use_ollama is False
         assert req.max_files is None  # Uses mode default at runtime
+        assert req.extra_ignore_dirs == []
 
     def test_null_max_files_accepted(self):
         """max_files=null means 'use mode default'."""
@@ -590,6 +634,62 @@ class TestWebUISchema:
 
         req = AnalyzeRequest(project_path="/test", max_files=None)
         assert req.max_files is None
+
+    def test_extra_ignore_dirs_payload_accepted(self):
+        try:
+            from project_prompter.web import AnalyzeRequest, WEB_AVAILABLE
+        except ImportError:
+            pytest.skip("FastAPI not available")
+
+        if not WEB_AVAILABLE:
+            pytest.skip("FastAPI not available")
+
+        req = AnalyzeRequest(project_path="/test", extra_ignore_dirs=["fixtures"])
+        assert req.extra_ignore_dirs == ["fixtures"]
+
+    def test_run_analysis_task_passes_extra_ignore_dirs(self, tmp_path, monkeypatch):
+        from project_prompter import analyzer, web
+
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        captured = {}
+
+        def fake_analyze_project(options, progress_callback=None):
+            captured["options"] = options
+            return _make_analysis()
+
+        monkeypatch.setattr(analyzer, "analyze_project", fake_analyze_project)
+
+        scan_id = "extra-ignore-test"
+        web._scans[scan_id] = {
+            "status": "queued",
+            "progress": [],
+            "completed_at": None,
+            "error": None,
+        }
+        request = SimpleNamespace(
+            project_path=str(project),
+            output_path="output",
+            mode="fast",
+            model="qwen2.5-coder:1.5b",
+            ollama_url="http://localhost:11434",
+            max_files=None,
+            max_chars_per_file=None,
+            use_ollama=False,
+            target_model="all",
+            use_cache=True,
+            clear_cache=False,
+            extra_ignore_dirs=["fixtures"],
+        )
+
+        try:
+            asyncio.run(web._run_analysis_task(scan_id, request))
+            assert web._scans[scan_id]["status"] == "completed"
+            assert captured["options"].extra_ignore_dirs == ["fixtures"]
+        finally:
+            web._scans.pop(scan_id, None)
 
 
 # ===========================================================================

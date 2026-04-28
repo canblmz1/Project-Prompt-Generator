@@ -85,6 +85,21 @@ Pay special attention to:
 - Prompt honesty and evidence limits
 - Cache invalidation
 - Safe treatment of binary/generated files
+""",
+    "data_science": """
+## Special Domain Risk: Data Science / Machine Learning
+
+This project appears to involve data science or machine learning.
+Pay special attention to:
+
+- PII and sensitive data in datasets
+- Hardcoded credentials in notebooks
+- Privacy, size, and retention of model weight files (.pkl, .h5, .pt)
+- Training-data poisoning risk, especially with external data sources
+- GPU and cloud compute cost controls
+- Random seed reproducibility
+- Reliability of model outputs and hallucination risk
+- MLOps, model versioning, and experiment tracking
 """
 }
 
@@ -101,12 +116,12 @@ def build_analysis_metadata(analysis: ProjectAnalysis) -> str:
     domain_result = analysis.domain_result
     
     metadata = [
-        f"## Analysis Metadata\n\n",
-        f"| Field | Value |\n",
-        f"|---|---|\n",
+        "## Analysis Metadata\n\n",
+        "| Field | Value |\n",
+        "|---|---|\n",
         f"| Analysis Type | {_analysis_type(meta)} |\n",
         f"| Evidence Level | {meta.evidence_level.capitalize()} |\n",
-        f"| Full Source Audit | No |\n",
+        "| Full Source Audit | No |\n",
         f"| Ollama Used | {meta.ollama_used} |\n",
         f"| Included File Evidence Count | {included_files} |\n",
         f"| Skipped Files Count | {skipped_files} |\n",

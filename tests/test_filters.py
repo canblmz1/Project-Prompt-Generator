@@ -1,11 +1,9 @@
 """Tests for filters.py — ignore rules, secret detection, and redaction."""
 
-import pytest
 from pathlib import Path
 
 from project_prompter.filters import (
     IGNORED_FOLDERS,
-    LOCK_FILES,
     has_suspicious_content,
     is_allowed_extension,
     is_lock_file,
@@ -62,6 +60,12 @@ class TestIgnoredFolders:
 
     def test_tests_not_ignored(self):
         assert should_ignore_folder("tests") is False
+
+    def test_extra_ignore_folder(self):
+        assert should_ignore_folder("data", extra=frozenset({"data"})) is True
+
+    def test_non_extra_folder_still_not_ignored(self):
+        assert should_ignore_folder("data") is False
 
     def test_all_ignored_folders_present(self):
         expected = {

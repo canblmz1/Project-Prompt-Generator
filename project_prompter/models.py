@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from pathlib import Path
 
 @dataclass
@@ -32,8 +32,10 @@ class ScanOptions:
     mode: str = "fast"           # fast | balanced | deep
     use_cache: bool = True
     clear_cache: bool = False
+    dry_run: bool = False
     ollama_max_files: int = 10   # how many files to send to Ollama at most
     strict_ollama: bool = False  # if True, fail when Ollama unavailable + --use-ollama
+    extra_ignore_dirs: List[str] = field(default_factory=list)
 
 
 @dataclass

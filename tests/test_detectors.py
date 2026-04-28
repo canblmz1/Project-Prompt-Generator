@@ -1,7 +1,6 @@
 """Tests for detectors.py — technology stack detection."""
 
 import json
-import pytest
 import tempfile
 from pathlib import Path
 

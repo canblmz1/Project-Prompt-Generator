@@ -1,4 +1,3 @@
-import pytest
 from project_prompter.domain_classifier import detect_domain
 
 def build_deps(words):
@@ -118,7 +117,7 @@ def test_domain_metadata_present_in_prompt():
 
 def test_generic_prompt_has_no_special_domain_section():
     from project_prompter.prompt_templates._common import build_special_domain_section
-    from project_prompter.models import ProjectAnalysis, ScanMetadata, DomainDetectionResult, TechStack
+    from project_prompter.models import ProjectAnalysis, DomainDetectionResult, TechStack
     
     domain = DomainDetectionResult("generic", "low", 0, 0, [], [])
     analysis = ProjectAnalysis("/path", "", TechStack(), [], {}, {}, [], [], [], None, "", domain_result=domain)

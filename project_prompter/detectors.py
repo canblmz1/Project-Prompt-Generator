@@ -10,6 +10,32 @@ from .models import TechStack, ScannedFile
 
 
 # ---------------------------------------------------------------------------
+# Common dependency groups
+# ---------------------------------------------------------------------------
+
+DATA_SCIENCE_DEPS: Dict[str, str] = {
+    "jupyter": "Jupyter",
+    "notebook": "Jupyter",
+    "ipykernel": "Jupyter",
+    "pandas": "pandas",
+    "numpy": "numpy",
+    "scikit-learn": "scikit-learn",
+    "sklearn": "sklearn",
+    "tensorflow": "TensorFlow",
+    "torch": "PyTorch",
+    "pytorch": "PyTorch",
+    "keras": "Keras",
+    "mlflow": "MLflow",
+    "wandb": "wandb",
+    "huggingface-hub": "huggingface",
+    "transformers": "Transformers",
+    "matplotlib": "Matplotlib",
+    "seaborn": "Seaborn",
+    "plotly": "Plotly",
+}
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -176,6 +202,10 @@ def _detect_python(root: Path, stack: TechStack) -> None:
     if "deepgram-sdk" in reqs:
         stack.add_item("ai_services", "Deepgram", "config")
 
+    for dep_name, label in DATA_SCIENCE_DEPS.items():
+        if dep_name in reqs:
+            stack.add_item("libraries", label, "config")
+
 def _collect_python_deps(root: Path) -> Set[str]:
     deps: Set[str] = set()
     req_path = root / "requirements.txt"
@@ -189,14 +219,24 @@ def _collect_python_deps(root: Path) -> Set[str]:
     pyproject_path = root / "pyproject.toml"
     if pyproject_path.exists():
         content = _read_text(pyproject_path).lower()
-        for pkg in ["fastapi", "django", "flask", "sqlalchemy", "pytest", "uvicorn", "pydantic", "celery", "redis", "openai", "deepgram", "anthropic"]:
+        known_pkgs = [
+            "fastapi", "django", "flask", "sqlalchemy", "pytest", "uvicorn",
+            "pydantic", "celery", "redis", "openai", "deepgram", "anthropic",
+            *DATA_SCIENCE_DEPS.keys(),
+        ]
+        for pkg in known_pkgs:
             if pkg in content:
                 deps.add(pkg)
 
     pipfile_path = root / "Pipfile"
     if pipfile_path.exists():
         content = _read_text(pipfile_path).lower()
-        for pkg in ["fastapi", "django", "flask", "sqlalchemy", "pytest", "uvicorn", "pydantic", "celery", "redis", "openai", "deepgram", "anthropic"]:
+        known_pkgs = [
+            "fastapi", "django", "flask", "sqlalchemy", "pytest", "uvicorn",
+            "pydantic", "celery", "redis", "openai", "deepgram", "anthropic",
+            *DATA_SCIENCE_DEPS.keys(),
+        ]
+        for pkg in known_pkgs:
             if pkg in content:
                 deps.add(pkg)
 
@@ -341,6 +381,22 @@ def _detect_from_imports(all_files: List[ScannedFile], stack: TechStack) -> None
                     stack.add_item("ai_services", "Gemini", "imports")
             if "deepgram" in c_lower:
                 stack.add_item("ai_services", "Deepgram", "imports")
+            if "import pandas" in c_lower or "from pandas" in c_lower:
+                stack.add_item("libraries", "pandas", "imports")
+            if "import numpy" in c_lower or "from numpy" in c_lower:
+                stack.add_item("libraries", "numpy", "imports")
+            if "import sklearn" in c_lower or "from sklearn" in c_lower:
+                stack.add_item("libraries", "sklearn", "imports")
+            if "import torch" in c_lower or "from torch" in c_lower:
+                stack.add_item("libraries", "PyTorch", "imports")
+            if "import tensorflow" in c_lower or "from tensorflow" in c_lower:
+                stack.add_item("libraries", "TensorFlow", "imports")
+            if "import keras" in c_lower or "from keras" in c_lower:
+                stack.add_item("libraries", "Keras", "imports")
+            if "import matplotlib" in c_lower or "from matplotlib" in c_lower:
+                stack.add_item("libraries", "Matplotlib", "imports")
+            if "import seaborn" in c_lower or "from seaborn" in c_lower:
+                stack.add_item("libraries", "Seaborn", "imports")
 
 
 # ---------------------------------------------------------------------------

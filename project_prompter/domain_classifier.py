@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set
 
 from .models import DomainDetectionResult
 
@@ -88,6 +88,21 @@ DOMAINS: List[DomainConfig] = [
         ],
         weak_indicators=[
             "github", "pytest", "docker", "cli", "config", "cache"
+        ]
+    ),
+    DomainConfig(
+        name="data_science",
+        strong_indicators=[
+            "jupyter", "notebook", ".ipynb", "pandas", "numpy", "scikit-learn",
+            "sklearn", "tensorflow", "pytorch", "torch", "keras", "model training",
+            "data pipeline", "feature engineering", "train_test_split",
+            "model evaluation", "hyperparameter", "cross_validation",
+            "gradient descent", "neural network", "deep learning", "mlflow",
+            "wandb", "huggingface", "transformers", "llm fine-tuning"
+        ],
+        weak_indicators=[
+            "matplotlib", "seaborn", "plotly", "csv", "dataset", "dataframe",
+            "preprocessing", "inference", "predict", "accuracy", "loss", "epoch"
         ]
     )
 ]
@@ -208,28 +223,34 @@ def detect_domain(
             if _match_indicator(dep_text, ind):
                 add_score(ind, 1, False, "dependencies/imports")
 
-    # Selection Algorithm
-    best_domain = "generic"
-    best_score = -1
-    best_strong_count = -1
-    best_confidence = "low"
-    
     candidates = []
     
     for d in DOMAINS:
         score = domain_scores[d.name]
         strong_count = domain_strong_counts[d.name]
+        data_science_single_indicator = (
+            d.name == "data_science"
+            and score >= 3
+            and strong_count >= 1
+        )
         
         # Determine confidence
         if score >= 12 and strong_count >= 3:
             confidence = "high"
         elif score >= 8 and strong_count >= 2:
             confidence = "medium"
+        elif data_science_single_indicator:
+            confidence = "medium"
         else:
             confidence = "low"
             
-        # Rule: Special domain seçmek için score >= 8 AND strong_indicator_count >= 2 AND confidence != low
-        if score >= 8 and strong_count >= 2 and confidence != "low":
+        # General domains require score >= 8 and at least two strong hits.
+        # data_science has a single strong-indicator exception.
+        qualifies = score >= 8 and strong_count >= 2
+        if data_science_single_indicator:
+            qualifies = True
+
+        if qualifies and confidence != "low":
             candidates.append({
                 "name": d.name,
                 "score": score,

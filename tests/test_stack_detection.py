@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from project_prompter.detectors import detect_tech_stack
 from project_prompter.models import ScannedFile
 

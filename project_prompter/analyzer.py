@@ -10,8 +10,7 @@ from typing import Callable, List, Optional
 
 from .detectors import detect_tech_stack
 from .exporters import export_all
-from .filters import should_ignore_file
-from .mode_config import analysis_type_label, evidence_level_for_mode
+from .mode_config import evidence_level_for_mode
 from .models import (
     ProjectAnalysis,
     ScanMetadata,
@@ -58,12 +57,15 @@ def analyze_project(
     if not project_root.is_dir():
         raise ValueError(f"Project path is not a directory: {project_root}")
 
-    log(f"🔍 Scanning project: {project_root}")
+    log(f"Scanning project: {project_root}")
     log(f"  Mode: {options.mode} | Ollama: {'enabled' if options.use_ollama else 'disabled'}")
 
     # Phase 1: Build file tree
     log("  Building file tree...")
-    file_tree = build_file_tree(project_root)
+    file_tree = build_file_tree(
+        project_root,
+        extra_ignore_dirs=options.extra_ignore_dirs,
+    )
 
     # Phase 2: Scan files
     log("  Scanning files...")
@@ -71,6 +73,7 @@ def analyze_project(
         project_root,
         max_files=options.max_files * 3,  # scan more, prioritize later
         max_chars_per_file=options.max_chars_per_file,
+        extra_ignore_dirs=options.extra_ignore_dirs,
     )
 
     total_found = len(all_files)
@@ -92,25 +95,33 @@ def analyze_project(
     # Phase 5: Generate risk notes
     risk_notes = _generate_risk_notes(tech_stack, redaction_findings, important_files)
 
-    # Phase 6: Summarize (NOW passing options correctly!)
-    log("  Running summarization...")
-    file_summaries, module_summaries, project_summary, ollama_used, ollama_error = run_summarization(
-        important_files=important_files,
-        tech_stack=tech_stack,
-        file_tree=file_tree,
-        model=options.model,
-        ollama_url=options.ollama_url,
-        use_ollama=options.use_ollama,
-        options=options,
-        progress_callback=progress_callback,
-    )
-
-    # Handle strict Ollama: if --strict-ollama and Ollama failed, raise error
-    if options.strict_ollama and options.use_ollama and not ollama_used and ollama_error:
-        raise ValueError(
-            f"Strict Ollama mode: Ollama is unavailable.\n{ollama_error}\n"
-            "Remove --strict-ollama to continue with static analysis only."
+    # Phase 6: Summarize. Dry-run stops before cache, Ollama, prompt, or export writes.
+    if options.dry_run:
+        log("  Dry run enabled. Skipping summarization, prompt generation, and export.")
+        file_summaries = {}
+        module_summaries = {}
+        project_summary = _dry_run_project_summary(tech_stack, options.mode)
+        ollama_used = False
+        ollama_error = None
+    else:
+        log("  Running summarization...")
+        file_summaries, module_summaries, project_summary, ollama_used, ollama_error = run_summarization(
+            important_files=important_files,
+            tech_stack=tech_stack,
+            file_tree=file_tree,
+            model=options.model,
+            ollama_url=options.ollama_url,
+            use_ollama=options.use_ollama,
+            options=options,
+            progress_callback=progress_callback,
         )
+
+        # Handle strict Ollama: if --strict-ollama and Ollama failed, raise error
+        if options.strict_ollama and options.use_ollama and not ollama_used and ollama_error:
+            raise ValueError(
+                f"Strict Ollama mode: Ollama is unavailable.\n{ollama_error}\n"
+                "Remove --strict-ollama to continue with static analysis only."
+            )
 
     duration = time.time() - start_time
 
@@ -174,7 +185,7 @@ def analyze_project(
     )
     if env_example_skipped:
         risk_notes.append(
-            "ℹ .env.example was skipped for safety. "
+            "INFO: .env.example was skipped for safety. "
             "Environment templates are not read to prevent accidental secret exposure."
         )
 
@@ -194,6 +205,11 @@ def analyze_project(
         structural_summaries=structural_summaries,
     )
 
+    if options.dry_run:
+        _log_dry_run_summary(log, project_root, options, important_files, tech_stack)
+        log(f"DRY RUN complete in {duration:.1f}s. No output files were written.")
+        return analysis
+
     # Phase 7: Build prompts
     log(f"  Building prompts for target: {options.target_model}...")
     prompts = build_prompts(analysis, options.target_model)
@@ -202,12 +218,60 @@ def analyze_project(
     log(f"  Exporting to: {options.output_path}")
     created_files = export_all(analysis, prompts, options)
 
-    log(f"✓ Analysis complete in {duration:.1f}s")
-    log(f"  Output files:")
+    log(f"Analysis complete in {duration:.1f}s")
+    log("  Output files:")
     for f in created_files:
         log(f"    {f}")
 
     return analysis
+
+
+def _dry_run_project_summary(tech_stack: TechStack, mode: str) -> str:
+    """Build a short in-memory summary for dry-run analysis results."""
+    tech = _format_detected_tech(tech_stack)
+    return (
+        f"Dry run completed (mode: {mode}). "
+        f"Detected technologies: {tech}. "
+        "No summarization, prompt generation, cache writes, or exports were performed."
+    )
+
+
+def _log_dry_run_summary(
+    log: Callable[[str], None],
+    project_root: Path,
+    options: ScanOptions,
+    important_files: List[ScannedFile],
+    tech_stack: TechStack,
+) -> None:
+    """Print the dry-run preview expected by the CLI."""
+    prompt_count = _target_prompt_count(options.target_model)
+    report_count = 6
+    estimated_outputs = report_count + prompt_count
+
+    log(f"[DRY RUN] Project: {project_root}")
+    log(f"[DRY RUN] Mode: {options.mode} | Target model: {options.target_model}")
+    log("[DRY RUN] Files selected for analysis (priority order):")
+    if important_files:
+        for scanned_file in important_files[:50]:
+            log(f"  [{scanned_file.priority_score}] {scanned_file.relative_path}")
+        if len(important_files) > 50:
+            log(f"  ... {len(important_files) - 50} more file(s)")
+    else:
+        log("  (none)")
+    log(f"[DRY RUN] Detected technologies: {_format_detected_tech(tech_stack)}")
+    log(
+        f"[DRY RUN] Estimated output files: {estimated_outputs} "
+        f"({report_count} reports + {prompt_count} prompt file(s))"
+    )
+    log("[DRY RUN] Remove --dry-run to write outputs.")
+
+
+def _target_prompt_count(target_model: str) -> int:
+    return 5 if target_model == "all" else 1
+
+
+def _format_detected_tech(tech_stack: TechStack) -> str:
+    return ", ".join(tech_stack.all_detected()) or "Unknown"
 
 
 def _generate_risk_notes(
@@ -222,7 +286,7 @@ def _generate_risk_notes(
         count = len(redaction_findings)
         files = list(set(f.file_path for f in redaction_findings))
         notes.append(
-            f"⚠ {count} secret pattern(s) detected and redacted in {len(files)} file(s): "
+            f"WARNING: {count} secret pattern(s) detected and redacted in {len(files)} file(s): "
             f"{', '.join(files[:5])}{'...' if len(files) > 5 else ''}"
         )
 
