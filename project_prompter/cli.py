@@ -222,6 +222,11 @@ Security note:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    parser.add_argument(
+        "--plan",
+        action="store_true",
+        help="Run repository audit and generate a practical upgrade plan.",
+    )
 
     return parser
 
@@ -305,6 +310,9 @@ def main() -> int:
         parser.print_help()
         print("\nError: project_path is required unless --ui is specified.", file=sys.stderr)
         return 1
+
+    if args.plan:
+        return _run_plan(args)
 
     # Validate conflicting flags
     error = _validate_flags(args)
@@ -390,6 +398,32 @@ def _clear_cache_only(args: argparse.Namespace) -> int:
 
     count = clear_cache(project_path)
     print(f"Cache cleared: {count} file(s) deleted from {project_path}.")
+    return 0
+
+
+def _run_plan(args: argparse.Namespace) -> int:
+    """Run repo audit and generate an actionable plan markdown file."""
+    from .audit import build_upgrade_plan, run_repo_audit
+
+    project_path = Path(args.project_path).resolve()
+    if not project_path.exists() or not project_path.is_dir():
+        print(f"Error: invalid project path: {project_path}", file=sys.stderr)
+        return 1
+
+    findings = run_repo_audit(project_path)
+    plan = build_upgrade_plan(project_path, findings)
+    output_path = Path(args.output).resolve()
+    output_path.mkdir(parents=True, exist_ok=True)
+    plan_file = output_path / "upgrade_plan.md"
+    plan_file.write_text(plan, encoding="utf-8")
+
+    print("Repository audit complete.")
+    print(f"Findings: {len(findings)}")
+    print(f"Plan file: {plan_file}")
+    if findings:
+        print("\nTop issues:")
+        for item in findings:
+            print(f"- [{item.severity}] {item.title}")
     return 0
 
 

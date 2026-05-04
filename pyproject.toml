@@ -39,6 +39,10 @@ dev = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "httpx>=0.25.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+    "bandit>=1.7.9",
+    "pip-audit>=2.7.0",
 ]
 
 [project.scripts]

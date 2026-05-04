@@ -15,7 +15,7 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
     import uvicorn
     WEB_AVAILABLE = True
 except ImportError:
@@ -25,11 +25,15 @@ from . import __version__
 from .mode_config import MODE_DEFAULTS, get_mode_defaults
 from .models import ScanOptions
 from .ollama_client import list_ollama_models, check_ollama_available, validate_ollama_url
+from .web_services import build_file_previews
+from .web_security import enforce_analyze_rate_limit, validate_extra_ignore_dirs
 
 # In-memory scan store
 _scans: Dict[str, Dict[str, Any]] = {}
 MAX_SCANS = 100
 _SCAN_EVICTION_BATCH = 10
+MAX_PREVIEW_CHARS_PER_FILE = 40_000
+MAX_TOTAL_PREVIEW_CHARS = 500_000
 
 STATIC_DIR = Path(__file__).parent / "static"
 ALLOWED_SCAN_ROOT_ENV = "ALLOWED_SCAN_ROOT"
@@ -49,13 +53,13 @@ if WEB_AVAILABLE:
         mode: Literal["fast", "balanced", "deep"] = "fast"
         model: str = "qwen2.5-coder:1.5b"
         ollama_url: str = "http://localhost:11434"
-        max_files: Optional[int] = None       # None = use mode default
-        max_chars_per_file: Optional[int] = None  # None = use mode default
+        max_files: Optional[int] = Field(default=None, ge=1, le=500)       # None = use mode default
+        max_chars_per_file: Optional[int] = Field(default=None, ge=100, le=200_000)  # None = use mode default
         use_ollama: bool = False
         target_model: str = "all"
         use_cache: bool = True
         clear_cache: bool = False
-        extra_ignore_dirs: List[str] = []
+        extra_ignore_dirs: List[str] = Field(default_factory=list, max_length=200)
 else:
     AnalyzeRequest = None  # type: ignore
 
@@ -281,13 +285,25 @@ def create_app() -> "FastAPI":
     async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
         """Start a project analysis scan."""
         try:
+            enforce_analyze_rate_limit()
             project_path, output_path, ollama_url = _validate_analysis_inputs(request)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            message = str(exc)
+            if message.startswith("rate limit exceeded:"):
+                retry_after = "60"
+                if "|" in message:
+                    message, retry_after = message.split("|", 1)
+                raise HTTPException(
+                    status_code=429,
+                    detail=message,
+                    headers={"Retry-After": retry_after},
+                ) from exc
+            raise HTTPException(status_code=400, detail=message) from exc
 
         request.project_path = str(project_path)
         request.output_path = str(output_path)
         request.ollama_url = ollama_url
+        request.extra_ignore_dirs = validate_extra_ignore_dirs(request.extra_ignore_dirs)
 
         _evict_old_scans()
         scan_id = str(uuid.uuid4())[:12]
@@ -363,6 +379,7 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
 
     try:
         project_path, output_base_path, ollama_url = _validate_analysis_inputs(request)
+        request.extra_ignore_dirs = validate_extra_ignore_dirs(request.extra_ignore_dirs)
         output_path = output_base_path / scan_id
         mode = request.mode
         defaults = get_mode_defaults(mode)
@@ -413,13 +430,11 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
                     outputs[rel] = str(f)
 
         # Read file contents for preview
-        file_contents = {}
-        for rel_path, abs_path in outputs.items():
-            try:
-                content = Path(abs_path).read_text(encoding="utf-8")
-                file_contents[rel_path] = content
-            except Exception:
-                file_contents[rel_path] = "(could not read file)"
+        file_contents, previews_truncated = build_file_previews(
+            outputs=outputs,
+            per_file_limit=MAX_PREVIEW_CHARS_PER_FILE,
+            total_limit=MAX_TOTAL_PREVIEW_CHARS,
+        )
 
         scan["status"] = "completed"
         scan["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -434,10 +449,16 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
         }
         scan["redaction_count"] = len(analysis.redaction_findings)
         scan["files_scanned"] = analysis.scan_metadata.files_scanned if analysis.scan_metadata else 0
+        scan["preview_truncated"] = previews_truncated
 
-    except Exception as e:
+    except ValueError as e:
         scan["status"] = "failed"
         scan["error"] = str(e)
+        scan["completed_at"] = datetime.now(timezone.utc).isoformat()
+        progress(f"✗ Analysis failed: {e}")
+    except Exception as e:
+        scan["status"] = "failed"
+        scan["error"] = "Analysis failed. Check server logs for details."
         scan["completed_at"] = datetime.now(timezone.utc).isoformat()
         progress(f"✗ Analysis failed: {e}")
 
