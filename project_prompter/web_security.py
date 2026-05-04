@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ANALYZE_RATE_LIMIT_PER_MIN_ENV = "PROJECT_PROMPTER_ANALYZE_RATE_LIMIT_PER_MIN"
-_analyze_window = deque()
+_analyze_window: deque[float] = deque()
 
 
 def validate_extra_ignore_dirs(extra_ignore_dirs: list[str]) -> list[str]:
