@@ -192,7 +192,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8787) -> "FastAPI":
 
     # Build CORS allowed origins from the configured host/port so the UI always
     # matches regardless of which address the server was started on.
-    cors_origins: list[str] = [f"http://{host}:{port}"]
+    cors_origins: List[str] = [f"http://{host}:{port}"]
     # Always include the canonical loopback aliases so tests and default usage work.
     for alias in ("localhost", "127.0.0.1"):
         origin = f"http://{alias}:{port}"
@@ -216,7 +216,6 @@ def create_app(host: str = "127.0.0.1", port: int = 8787) -> "FastAPI":
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("X-XSS-Protection", "1; mode=block")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
