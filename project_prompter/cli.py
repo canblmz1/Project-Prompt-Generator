@@ -7,8 +7,31 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .mode_config import MODE_DEFAULTS, MODE_DESCRIPTIONS, VALID_MODES
+from .mode_config import (
+    MAX_CHARS_PER_FILE_MAX,
+    MAX_CHARS_PER_FILE_MIN,
+    MAX_FILES_MAX,
+    MAX_FILES_MIN,
+    MODE_DEFAULTS,
+    MODE_DESCRIPTIONS,
+    VALID_MODES,
+)
 from .models import ScanOptions
+
+
+def _bounded_int(name: str, minimum: int, maximum: int):
+    def _parse(value: str) -> int:
+        try:
+            parsed = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"{name} must be an integer") from exc
+        if parsed < minimum or parsed > maximum:
+            raise argparse.ArgumentTypeError(
+                f"{name} must be between {minimum} and {maximum}"
+            )
+        return parsed
+
+    return _parse
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -118,18 +141,28 @@ Security note:
     # -----------------------------------------------------------------------
     parser.add_argument(
         "--max-files",
-        type=int,
+        type=_bounded_int("max-files", MAX_FILES_MIN, MAX_FILES_MAX),
         default=None,
         metavar="N",
-        help="Maximum number of files to include (default: set by mode)",
+        help=(
+            "Maximum number of files to include "
+            f"({MAX_FILES_MIN}-{MAX_FILES_MAX}, default: set by mode)"
+        ),
     )
 
     parser.add_argument(
         "--max-chars-per-file",
-        type=int,
+        type=_bounded_int(
+            "max-chars-per-file",
+            MAX_CHARS_PER_FILE_MIN,
+            MAX_CHARS_PER_FILE_MAX,
+        ),
         default=None,
         metavar="N",
-        help="Maximum characters to read per file (default: set by mode)",
+        help=(
+            "Maximum characters to read per file "
+            f"({MAX_CHARS_PER_FILE_MIN}-{MAX_CHARS_PER_FILE_MAX}, default: set by mode)"
+        ),
     )
 
     # -----------------------------------------------------------------------

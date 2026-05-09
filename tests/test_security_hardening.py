@@ -328,3 +328,43 @@ def test_connection_string_pattern_is_bounded_and_still_redacts():
 
     assert "password123" not in redacted
     assert ("CONNECTION_STRING", 1) in findings
+
+
+@pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
+def test_analyze_rejects_when_too_many_active_scans(tmp_path, monkeypatch):
+    previous_scans = dict(web._scans)
+    web._scans.clear()
+    try:
+        for i in range(web.MAX_ACTIVE_SCANS):
+            web._scans[f"scan_{i}"] = {"status": "running", "started_at": f"2026-01-01T00:00:0{i}Z"}
+
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.chdir(tmp_path)
+        client = TestClient(web.create_app())
+
+        response = client.post(
+            "/api/analyze",
+            json={
+                "project_path": str(project),
+                "output_path": "output",
+                "ollama_url": "http://localhost:11434",
+            },
+        )
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == "Too many active scans. Wait for an existing scan to finish."
+    finally:
+        web._scans.clear()
+        web._scans.update(previous_scans)
+
+
+def test_read_output_preview_truncates_large_result(tmp_path):
+    output_file = tmp_path / "project_summary.md"
+    output_file.write_text("A" * (web.RESULT_PREVIEW_MAX_CHARS + 25), encoding="utf-8")
+
+    preview = web._read_output_preview(output_file)
+
+    assert len(preview) > web.RESULT_PREVIEW_MAX_CHARS
+    assert preview.startswith("A" * web.RESULT_PREVIEW_MAX_CHARS)
+    assert "TRUNCATED FOR WEB PREVIEW" in preview

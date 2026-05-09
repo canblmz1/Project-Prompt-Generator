@@ -93,7 +93,12 @@ def analyze_project(
     log(f"  Selected {len(important_files)} important files for analysis")
 
     # Phase 5: Generate risk notes
-    risk_notes = _generate_risk_notes(tech_stack, redaction_findings, important_files)
+    risk_notes = _generate_risk_notes(
+        tech_stack,
+        redaction_findings,
+        important_files,
+        all_files,
+    )
 
     # Phase 6: Summarize. Dry-run stops before cache, Ollama, prompt, or export writes.
     if options.dry_run:
@@ -278,6 +283,7 @@ def _generate_risk_notes(
     tech_stack: TechStack,
     redaction_findings: list,
     important_files: List[ScannedFile],
+    all_files: List[ScannedFile],
 ) -> List[str]:
     """Generate risk notes based on static analysis."""
     notes = []
@@ -291,14 +297,14 @@ def _generate_risk_notes(
         )
 
     # Check for .env.example (good practice)
-    env_example = any(".env.example" in f.relative_path for f in important_files)
+    env_example = any(Path(f.relative_path).name == ".env.example" for f in all_files)
     if not env_example and tech_stack.frameworks:
         notes.append("No .env.example file detected — consider adding one to document required environment variables.")
 
     # Check for test files
     has_tests = any(
         ".test." in f.relative_path or ".spec." in f.relative_path or "/test" in f.relative_path
-        for f in important_files
+        for f in all_files
     )
     if not has_tests and not tech_stack.testing_tools:
         notes.append("No test files or testing tools detected — consider adding a test suite.")
@@ -310,7 +316,7 @@ def _generate_risk_notes(
     # Check for auth files
     has_auth = any(
         "auth" in f.relative_path.lower() or "security" in f.relative_path.lower()
-        for f in important_files
+        for f in all_files
     )
     if not has_auth and tech_stack.frameworks:
         notes.append("No explicit authentication/authorization files detected — verify auth implementation.")

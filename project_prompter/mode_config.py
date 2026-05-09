@@ -36,6 +36,10 @@ MODE_DEFAULTS: Dict[str, Dict[str, Any]] = {
 }
 
 VALID_MODES = tuple(MODE_DEFAULTS.keys())
+MAX_FILES_MIN = 1
+MAX_FILES_MAX = 500
+MAX_CHARS_PER_FILE_MIN = 500
+MAX_CHARS_PER_FILE_MAX = 50_000
 
 # Mode descriptions (for CLI help and UI)
 MODE_DESCRIPTIONS: Dict[str, str] = {

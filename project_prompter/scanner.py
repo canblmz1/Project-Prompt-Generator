@@ -109,6 +109,8 @@ def scan_project(
     scanned: List[ScannedFile] = []
     redaction_findings: List[RedactionFinding] = []
     extra = _normalize_extra_ignore_dirs(extra_ignore_dirs)
+    scannable_count = 0
+    limit_reached = False
 
     for dirpath, dirnames, filenames in os.walk(project_root):
         current_dir = Path(dirpath)
@@ -130,9 +132,9 @@ def scan_project(
                 )
             else:
                 new_dirnames.append(d)
-        dirnames[:] = new_dirnames
+        dirnames[:] = sorted(new_dirnames)
 
-        for filename in filenames:
+        for filename in sorted(filenames):
             file_path = current_dir / filename
             relative_path = str(file_path.relative_to(project_root)).replace("\\", "/")
 
@@ -226,6 +228,13 @@ def scan_project(
                     content_preview=redacted_content,
                 )
             )
+            scannable_count += 1
+            if scannable_count >= max_files:
+                limit_reached = True
+                break
+
+        if limit_reached:
+            break
 
     return scanned, redaction_findings
 

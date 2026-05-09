@@ -193,6 +193,14 @@ class TestModePrecedence:
         assert opts.max_files == 80
         assert opts.max_chars_per_file == 6000
 
+    def test_cli_rejects_zero_max_files(self):
+        with pytest.raises(SystemExit):
+            create_parser().parse_args(["/test", "--max-files", "0"])
+
+    def test_cli_rejects_too_large_max_chars_per_file(self):
+        with pytest.raises(SystemExit):
+            create_parser().parse_args(["/test", "--max-chars-per-file", "50001"])
+
 
 # ===========================================================================
 # 3b. User-defined excludes
@@ -662,6 +670,32 @@ class TestWebUISchema:
         req = AnalyzeRequest(project_path="/test", extra_ignore_dirs=["fixtures"])
         assert req.extra_ignore_dirs == ["fixtures"]
 
+    def test_invalid_max_files_rejected_by_request_schema(self):
+        try:
+            from pydantic import ValidationError
+            from project_prompter.web import AnalyzeRequest, WEB_AVAILABLE
+        except ImportError:
+            pytest.skip("FastAPI not available")
+
+        if not WEB_AVAILABLE:
+            pytest.skip("FastAPI not available")
+
+        with pytest.raises(ValidationError):
+            AnalyzeRequest(project_path="/test", max_files=0)
+
+    def test_invalid_max_chars_rejected_by_request_schema(self):
+        try:
+            from pydantic import ValidationError
+            from project_prompter.web import AnalyzeRequest, WEB_AVAILABLE
+        except ImportError:
+            pytest.skip("FastAPI not available")
+
+        if not WEB_AVAILABLE:
+            pytest.skip("FastAPI not available")
+
+        with pytest.raises(ValidationError):
+            AnalyzeRequest(project_path="/test", max_chars_per_file=100)
+
     def test_invalid_mode_rejected_by_request_schema(self):
         try:
             from pydantic import ValidationError
@@ -758,3 +792,31 @@ class TestStrictOllama:
         ))
         assert opts.strict_ollama is True
         assert opts.use_ollama is True
+
+
+def test_analyze_project_does_not_warn_about_existing_env_example_or_tests(tmp_path):
+    from project_prompter.analyzer import analyze_project
+
+    project = tmp_path / "project"
+    (project / "tests").mkdir(parents=True)
+    project.mkdir(exist_ok=True)
+    (project / ".env.example").write_text("API_KEY=\n", encoding="utf-8")
+    (project / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (project / "tests" / "test_main.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    analysis = analyze_project(
+        ScanOptions(
+            project_path=project,
+            output_path=tmp_path / "out",
+            max_files=10,
+            max_chars_per_file=1000,
+            use_ollama=False,
+            target_model="generic",
+            dry_run=True,
+        ),
+        progress_callback=lambda _msg: None,
+    )
+
+    joined = "\n".join(analysis.risk_notes)
+    assert "No .env.example file detected" not in joined
+    assert "No test files or testing tools detected" not in joined

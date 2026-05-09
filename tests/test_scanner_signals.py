@@ -107,3 +107,14 @@ def test_safe_read_zero_budget_uses_english_omission_marker(tmp_path):
     assert content == "... [MIDDLE SECTION OMITTED \u2014 6 chars] ..."
     assert "ORTA KISIM ATILDI" not in content
     assert "karakter" not in content
+
+
+def test_scan_project_stops_after_max_scannable_files(tmp_path):
+    for name in ("a.py", "b.py", "c.py", "d.py"):
+        (tmp_path / name).write_text(f"print('{name}')", encoding="utf-8")
+
+    all_files, _ = scan_project(tmp_path, max_files=2, max_chars_per_file=100)
+
+    scannable = [f for f in all_files if not f.skipped_reason]
+    assert len(scannable) == 2
+    assert [f.relative_path for f in scannable] == ["a.py", "b.py"]

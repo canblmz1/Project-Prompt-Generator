@@ -15,14 +15,21 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
     import uvicorn
     WEB_AVAILABLE = True
 except ImportError:
     WEB_AVAILABLE = False
 
 from . import __version__
-from .mode_config import MODE_DEFAULTS, get_mode_defaults
+from .mode_config import (
+    MAX_CHARS_PER_FILE_MAX,
+    MAX_CHARS_PER_FILE_MIN,
+    MAX_FILES_MAX,
+    MAX_FILES_MIN,
+    MODE_DEFAULTS,
+    get_mode_defaults,
+)
 from .models import ScanOptions
 from .ollama_client import list_ollama_models, check_ollama_available, validate_ollama_url
 
@@ -30,6 +37,8 @@ from .ollama_client import list_ollama_models, check_ollama_available, validate_
 _scans: Dict[str, Dict[str, Any]] = {}
 MAX_SCANS = 100
 _SCAN_EVICTION_BATCH = 10
+MAX_ACTIVE_SCANS = 2
+RESULT_PREVIEW_MAX_CHARS = 100_000
 
 STATIC_DIR = Path(__file__).parent / "static"
 ALLOWED_SCAN_ROOT_ENV = "ALLOWED_SCAN_ROOT"
@@ -49,8 +58,12 @@ if WEB_AVAILABLE:
         mode: Literal["fast", "balanced", "deep"] = "fast"
         model: str = "qwen2.5-coder:1.5b"
         ollama_url: str = "http://localhost:11434"
-        max_files: Optional[int] = None       # None = use mode default
-        max_chars_per_file: Optional[int] = None  # None = use mode default
+        max_files: Optional[int] = Field(default=None, ge=MAX_FILES_MIN, le=MAX_FILES_MAX)
+        max_chars_per_file: Optional[int] = Field(
+            default=None,
+            ge=MAX_CHARS_PER_FILE_MIN,
+            le=MAX_CHARS_PER_FILE_MAX,
+        )
         use_ollama: bool = False
         target_model: str = "all"
         use_cache: bool = True
@@ -69,6 +82,21 @@ def _evict_old_scans() -> None:
         )[:_SCAN_EVICTION_BATCH]
         for key in oldest_keys:
             del _scans[key]
+
+
+def _active_scan_count() -> int:
+    return sum(1 for scan in _scans.values() if scan.get("status") in {"queued", "running"})
+
+
+def _read_output_preview(file_path: Path, max_chars: int = RESULT_PREVIEW_MAX_CHARS) -> str:
+    content = file_path.read_text(encoding="utf-8")
+    if len(content) <= max_chars:
+        return content
+    omitted = len(content) - max_chars
+    return (
+        content[:max_chars]
+        + f"\n\n... [TRUNCATED FOR WEB PREVIEW — {omitted} chars omitted] ..."
+    )
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
@@ -289,6 +317,12 @@ def create_app() -> "FastAPI":
         request.output_path = str(output_path)
         request.ollama_url = ollama_url
 
+        if _active_scan_count() >= MAX_ACTIVE_SCANS:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many active scans. Wait for an existing scan to finish.",
+            )
+
         _evict_old_scans()
         scan_id = str(uuid.uuid4())[:12]
 
@@ -416,8 +450,7 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
         file_contents = {}
         for rel_path, abs_path in outputs.items():
             try:
-                content = Path(abs_path).read_text(encoding="utf-8")
-                file_contents[rel_path] = content
+                file_contents[rel_path] = _read_output_preview(Path(abs_path))
             except Exception:
                 file_contents[rel_path] = "(could not read file)"
 

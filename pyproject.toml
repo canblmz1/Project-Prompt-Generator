@@ -45,9 +45,9 @@ dev = [
 project-prompter = "project_prompter.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/project-prompter"
-Repository = "https://github.com/YOUR_USERNAME/project-prompter"
-Issues = "https://github.com/YOUR_USERNAME/project-prompter/issues"
+Homepage = "https://github.com/canblmz1/Project-Prompt-Generator"
+Repository = "https://github.com/canblmz1/Project-Prompt-Generator"
+Issues = "https://github.com/canblmz1/Project-Prompt-Generator/issues"
 
 [tool.setuptools.packages.find]
 include = ["project_prompter*"]
