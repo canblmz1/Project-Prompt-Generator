@@ -89,8 +89,11 @@ def _active_scan_count() -> int:
 
 
 def _read_output_preview(file_path: Path, max_chars: int = RESULT_PREVIEW_MAX_CHARS) -> str:
-    with file_path.open("r", encoding="utf-8") as handle:
-        content = handle.read(max_chars + 1)
+    try:
+        with file_path.open("r", encoding="utf-8") as handle:
+            content = handle.read(max_chars + 1)
+    except UnicodeDecodeError:
+        return "(could not read file: non-UTF-8 text)"
     if len(content) <= max_chars:
         return content
     return content[:max_chars] + "\n\n... [TRUNCATED FOR WEB PREVIEW] ..."

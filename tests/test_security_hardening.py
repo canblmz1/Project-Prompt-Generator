@@ -368,3 +368,12 @@ def test_read_output_preview_truncates_large_result(tmp_path):
     assert len(preview) > web.RESULT_PREVIEW_MAX_CHARS
     assert preview.startswith("A" * web.RESULT_PREVIEW_MAX_CHARS)
     assert "TRUNCATED FOR WEB PREVIEW" in preview
+
+
+def test_read_output_preview_reports_non_utf8_text(tmp_path):
+    output_file = tmp_path / "scan_report.json"
+    output_file.write_bytes(b"\xff\xfe\x00\x00")
+
+    preview = web._read_output_preview(output_file)
+
+    assert preview == "(could not read file: non-UTF-8 text)"

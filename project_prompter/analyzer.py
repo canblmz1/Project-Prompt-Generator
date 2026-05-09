@@ -305,10 +305,7 @@ def _generate_risk_notes(
         notes.append("No .env.example file detected — consider adding one to document required environment variables.")
 
     # Check for test files
-    has_tests = any(
-        ".test." in f.relative_path or ".spec." in f.relative_path or "/test" in f.relative_path
-        for f in all_files
-    )
+    has_tests = any(_looks_like_test_path(f.relative_path) for f in all_files)
     if not has_tests and not tech_stack.testing_tools:
         notes.append("No test files or testing tools detected — consider adding a test suite.")
 
@@ -333,6 +330,15 @@ def _generate_risk_notes(
         )
 
     return notes
+
+
+def _looks_like_test_path(relative_path: str) -> bool:
+    path = relative_path.lower().replace("\\", "/")
+    if path.startswith("tests/") or path.startswith("test/"):
+        return True
+    if "/tests/" in path or "/test/" in path or "/__tests__/" in path:
+        return True
+    return any(marker in path for marker in (".test.", ".spec.", "_test.", "_spec."))
 
 
 def _build_assumptions(

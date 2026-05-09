@@ -820,3 +820,28 @@ def test_analyze_project_does_not_warn_about_existing_env_example_or_tests(tmp_p
     joined = "\n".join(analysis.risk_notes)
     assert "No .env.example file detected" not in joined
     assert "No test files or testing tools detected" not in joined
+
+
+def test_analyze_project_does_not_treat_protest_file_as_test_suite(tmp_path):
+    from project_prompter.analyzer import analyze_project
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (project / "protest.py").write_text("print('not a test')\n", encoding="utf-8")
+
+    analysis = analyze_project(
+        ScanOptions(
+            project_path=project,
+            output_path=tmp_path / "out",
+            max_files=10,
+            max_chars_per_file=1000,
+            use_ollama=False,
+            target_model="generic",
+            dry_run=True,
+        ),
+        progress_callback=lambda _msg: None,
+    )
+
+    joined = "\n".join(analysis.risk_notes)
+    assert "No test files or testing tools detected" in joined
