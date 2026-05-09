@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 try:
-    from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+    from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Response
     from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -179,7 +179,7 @@ def _validate_analysis_inputs(request: Any) -> tuple[Path, Path, str]:
     return project_path, output_path, ollama_url
 
 
-def create_app() -> "FastAPI":
+def create_app(host: str = "127.0.0.1", port: int = 8787) -> "FastAPI":
     """Create and configure the FastAPI application."""
     if not WEB_AVAILABLE:
         raise ImportError("FastAPI and uvicorn are required for the web UI. Install with: pip install fastapi uvicorn")
@@ -189,13 +189,36 @@ def create_app() -> "FastAPI":
         description="Scan local projects and generate optimized AI prompts — locally, privately.",
         version=__version__,
     )
+
+    # Build CORS allowed origins from the configured host/port so the UI always
+    # matches regardless of which address the server was started on.
+    cors_origins: list[str] = [f"http://{host}:{port}"]
+    # Always include the canonical loopback aliases so tests and default usage work.
+    for alias in ("localhost", "127.0.0.1"):
+        origin = f"http://{alias}:{port}"
+        if origin not in cors_origins:
+            cors_origins.append(origin)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:8787", "http://127.0.0.1:8787"],
+        allow_origins=cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
     )
+
+    # ---------------------------------------------------------------------------
+    # Security-headers middleware — defence-in-depth for browser clients
+    # ---------------------------------------------------------------------------
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next: Any) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-XSS-Protection", "1; mode=block")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        return response
 
     # Mount static files if directory exists
     if STATIC_DIR.exists():
@@ -306,7 +329,7 @@ def create_app() -> "FastAPI":
         request.extra_ignore_dirs = validate_extra_ignore_dirs(request.extra_ignore_dirs)
 
         _evict_old_scans()
-        scan_id = str(uuid.uuid4())[:12]
+        scan_id = uuid.uuid4().hex[:20]
 
         _scans[scan_id] = {
             "scan_id": scan_id,
@@ -378,6 +401,8 @@ async def _run_analysis_task(scan_id: str, request: Any) -> None:
         scan["progress"].append(msg)
 
     try:
+        # Re-validate inputs inside the background task so any tampered or
+        # stale values are caught before starting heavy analysis work.
         project_path, output_base_path, ollama_url = _validate_analysis_inputs(request)
         request.extra_ignore_dirs = validate_extra_ignore_dirs(request.extra_ignore_dirs)
         output_path = output_base_path / scan_id
@@ -480,5 +505,5 @@ def start_server(host: str = "127.0.0.1", port: int = 8787) -> None:
         raise ImportError(
             "FastAPI and uvicorn are required. Install with: pip install fastapi uvicorn"
         )
-    app = create_app()
+    app = create_app(host=host, port=port)
     uvicorn.run(app, host=host, port=port, log_level="info")

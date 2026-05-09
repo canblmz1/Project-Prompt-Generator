@@ -101,6 +101,11 @@ def scan_project(
     """
     Recursively scan a project directory.
 
+    Note: ``max_files`` is intentionally *not* enforced here.  The scanner
+    walks the entire tree so that ``detect_tech_stack`` and
+    ``domain_classifier`` can see all files.  File selection is capped later
+    by ``prioritize_files`` which ranks files by importance before truncating.
+
     Returns:
         (scanned_files, redaction_findings)
         scanned_files includes all discovered files with content_preview set.
