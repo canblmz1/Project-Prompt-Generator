@@ -89,14 +89,11 @@ def _active_scan_count() -> int:
 
 
 def _read_output_preview(file_path: Path, max_chars: int = RESULT_PREVIEW_MAX_CHARS) -> str:
-    content = file_path.read_text(encoding="utf-8")
+    with file_path.open("r", encoding="utf-8") as handle:
+        content = handle.read(max_chars + 1)
     if len(content) <= max_chars:
         return content
-    omitted = len(content) - max_chars
-    return (
-        content[:max_chars]
-        + f"\n\n... [TRUNCATED FOR WEB PREVIEW — {omitted} chars omitted] ..."
-    )
+    return content[:max_chars] + "\n\n... [TRUNCATED FOR WEB PREVIEW] ..."
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

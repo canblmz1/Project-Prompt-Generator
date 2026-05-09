@@ -297,7 +297,10 @@ def _generate_risk_notes(
         )
 
     # Check for .env.example (good practice)
-    env_example = any(Path(f.relative_path).name == ".env.example" for f in all_files)
+    env_example = any(
+        f.relative_path == ".env.example" or f.relative_path.endswith("/.env.example")
+        for f in all_files
+    )
     if not env_example and tech_stack.frameworks:
         notes.append("No .env.example file detected — consider adding one to document required environment variables.")
 
