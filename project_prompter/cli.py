@@ -312,6 +312,10 @@ def main() -> int:
         return 1
 
     if args.plan:
+        error = _validate_flags(args)
+        if error:
+            print(f"\nError: {error}", file=sys.stderr)
+            return 1
         return _run_plan(args)
 
     # Validate conflicting flags
@@ -429,6 +433,10 @@ def _run_plan(args: argparse.Namespace) -> int:
 
 def _start_ui(args: argparse.Namespace) -> int:
     """Start the local web UI."""
+    if not (1 <= args.port <= 65535):
+        print(f"Error: --port must be between 1 and 65535 (got {args.port}).", file=sys.stderr)
+        return 1
+
     try:
         from .web import start_server
         print(f"Local Project Prompt Generator v{__version__}")

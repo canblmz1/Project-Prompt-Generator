@@ -23,7 +23,10 @@ def validate_extra_ignore_dirs(extra_ignore_dirs: list[str]) -> list[str]:
 
 def enforce_analyze_rate_limit() -> int:
     raw_limit = os.environ.get(ANALYZE_RATE_LIMIT_PER_MIN_ENV, "60")
-    limit = int(raw_limit)
+    try:
+        limit = int(raw_limit)
+    except (ValueError, TypeError):
+        limit = 60  # fall back to safe default when env var is malformed
     if limit <= 0:
         return 0
 

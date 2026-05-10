@@ -15,7 +15,12 @@ def _cache_dir(project_root: Path) -> Path:
 
 
 def _file_hash(file_path: Path) -> str:
-    """SHA256 of file content, combined with size+mtime for speed."""
+    """Return a short hash key for a file, derived from its path, size, and mtime.
+
+    Uses stat metadata rather than file content for speed.  The resulting
+    key is stable as long as the file has not been modified (size or mtime
+    change) and serves as the cache-invalidation signal.
+    """
     try:
         stat = file_path.stat()
         # Fast key: path + size + mtime (no full read needed for cache key)

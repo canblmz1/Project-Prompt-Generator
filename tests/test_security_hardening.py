@@ -328,3 +328,30 @@ def test_connection_string_pattern_is_bounded_and_still_redacts():
 
     assert "password123" not in redacted
     assert ("CONNECTION_STRING", 1) in findings
+
+
+@pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
+def test_security_headers_present_on_health_endpoint():
+    """Responses must include basic defence-in-depth security headers."""
+    client = TestClient(web.create_app())
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.headers.get("x-content-type-options") == "nosniff"
+    assert response.headers.get("x-frame-options") == "DENY"
+    assert response.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
+
+
+@pytest.mark.skipif(TestClient is None or not web.WEB_AVAILABLE, reason="FastAPI not available")
+def test_cors_uses_configured_port():
+    """CORS allowed origins should reflect the port passed to create_app."""
+    client = TestClient(web.create_app(host="127.0.0.1", port=9090))
+
+    allowed = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://localhost:9090",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert allowed.headers.get("access-control-allow-origin") == "http://localhost:9090"
