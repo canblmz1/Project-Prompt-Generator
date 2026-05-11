@@ -115,6 +115,12 @@ async function startScan() {
     return;
   }
 
+  // Prevent duplicate polling intervals
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+
   const btn = document.getElementById('scanBtn');
   btn.disabled = true;
   btn.textContent = 'Scanning...';
@@ -210,6 +216,9 @@ async function pollResults(scanId) {
       document.getElementById('scanBtn').disabled = false;
       document.getElementById('scanBtn').textContent = 'Start Scan';
       logStatus('✓ Scan completed!', 'success');
+      if (data.preview_truncated) {
+        logStatus('⚠ Note: Some previews were truncated due to size limits. Download files for full content.', 'warning');
+      }
       scanResults = data;
       renderResults(data);
     } else if (data.status === 'failed') {
@@ -293,6 +302,9 @@ function renderResults(data) {
 
   // Switch to summary tab
   showTab('summary');
+
+  // Save to local history
+  saveToHistory(data);
 }
 
 function renderTechStack(stack, rawMd) {
@@ -418,6 +430,7 @@ function logStatus(msg, type) {
 }
 
 function clearResults() {
+  currentScanId = null;
   scanResults = {};
   document.getElementById('emptyState').style.display = 'flex';
   document.getElementById('summaryContent').style.display = 'none';
@@ -474,9 +487,113 @@ function showToast(msg) {
 }
 
 // ---------------------------------------------------------------------------
+// Scan History (localStorage)
+// ---------------------------------------------------------------------------
+
+const HISTORY_KEY = 'project_prompter_history';
+const HISTORY_MAX = 20;
+
+function saveToHistory(data) {
+  if (!data || !data.scan_id) return;
+  try {
+    let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    history = history.filter(h => h.scan_id !== data.scan_id);
+    const entry = {
+      scan_id: data.scan_id,
+      project_path: data.project_path,
+      mode: data.mode,
+      scanned_at: data.completed_at || new Date().toISOString(),
+      redaction_count: data.redaction_count || 0,
+      files_scanned: data.files_scanned || 0,
+      tech_summary: (data.tech_stack && data.tech_stack.languages)
+        ? data.tech_stack.languages.slice(0, 3).join(', ')
+        : '',
+    };
+    history.unshift(entry);
+    if (history.length > HISTORY_MAX) history = history.slice(0, HISTORY_MAX);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    renderHistory();
+  } catch (e) {
+    // localStorage may be disabled or full; silently ignore
+  }
+}
+
+function renderHistory() {
+  const container = document.getElementById('historyList');
+  if (!container) return;
+  container.innerHTML = '';
+  try {
+    const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    if (history.length === 0) {
+      container.innerHTML = '<div style="font-size:0.75rem;color:var(--text-dim);padding:4px 0;">No history yet.</div>';
+      return;
+    }
+    history.forEach(entry => {
+      const item = document.createElement('button');
+      item.className = 'btn btn-secondary btn-sm';
+      item.style.cssText = 'justify-content:flex-start;text-align:left;';
+      const meta = `${entry.mode} • ${entry.files_scanned} files${entry.redaction_count ? ' • ' + entry.redaction_count + ' secrets' : ''}`;
+      item.innerHTML = `<div style="line-height:1.4"><div style="font-weight:600;font-size:0.78rem">${escapeHtml(entry.project_path || 'Unknown')}</div><div style="font-size:0.65rem;color:var(--text-muted)">${escapeHtml(meta)}</div></div>`;
+      item.title = 'Click to restore project path and mode';
+      item.onclick = () => loadHistoryEntry(entry);
+      container.appendChild(item);
+    });
+  } catch (e) {
+    container.innerHTML = '<div style="font-size:0.75rem;color:var(--text-dim)">Unable to load history.</div>';
+  }
+}
+
+function loadHistoryEntry(entry) {
+  logStatus(`Loaded history entry: ${entry.project_path} (${entry.mode})`, 'info');
+  document.getElementById('projectPath').value = entry.project_path || '';
+  if (entry.mode && MODE_DEFAULTS[entry.mode]) {
+    const radio = document.querySelector(`input[name="analysisMode"][value="${entry.mode}"]`);
+    if (radio) {
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change'));
+    }
+  }
+  document.getElementById('projectPath').focus();
+}
+
+function clearHistory() {
+  try {
+    localStorage.removeItem(HISTORY_KEY);
+    renderHistory();
+    showToast('History cleared');
+  } catch (e) {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Export Results
+// ---------------------------------------------------------------------------
+
+function exportResults() {
+  if (!scanResults || !scanResults.scan_id) {
+    showToast('No results to export. Run a scan first.');
+    return;
+  }
+  try {
+    const blob = new Blob([JSON.stringify(scanResults, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scan-${scanResults.scan_id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Results exported');
+  } catch (e) {
+    showToast('Export failed');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Don't auto-check Ollama — it's off by default now
-});
+renderHistory();
+// UI is ready by default; no auto-check needed.

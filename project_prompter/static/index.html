@@ -25,7 +25,7 @@
       <div class="section-title">📁 Project</div>
       <div class="form-group">
         <label for="projectPath">Local Project Path</label>
-        <input type="text" id="projectPath" placeholder="C:/Users/you/my-project or ./my-project" />
+        <input type="text" id="projectPath" placeholder="C:/Users/you/my-project or ./my-project" aria-label="Local project path" />
       </div>
     </div>
 
@@ -80,11 +80,11 @@
       <div class="form-row">
         <div class="form-group">
           <label for="maxFiles">Max Files</label>
-          <input type="number" id="maxFiles" value="40" min="1" max="500" />
+          <input type="number" id="maxFiles" value="40" min="1" max="500" aria-label="Maximum files to include" />
         </div>
         <div class="form-group">
           <label for="maxChars">Max Chars/File</label>
-          <input type="number" id="maxChars" value="3000" min="500" max="50000" />
+          <input type="number" id="maxChars" value="3000" min="500" max="50000" aria-label="Maximum characters per file" />
         </div>
       </div>
 
@@ -106,7 +106,7 @@
         </div>
         <div class="form-group">
           <label for="ollamaUrl">Ollama URL</label>
-          <input type="text" id="ollamaUrl" value="http://localhost:11434" />
+          <input type="text" id="ollamaUrl" value="http://localhost:11434" aria-label="Ollama API URL" />
         </div>
         <button class="btn btn-secondary btn-sm" onclick="checkOllama()" style="width:100%">
           Check Ollama Status
@@ -150,10 +150,20 @@
 
     <div class="divider"></div>
 
+    <!-- History -->
+    <div id="historySection">
+      <div class="section-title">📜 History</div>
+      <div id="historyList" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;"></div>
+      <button class="btn btn-secondary btn-sm" onclick="clearHistory()" style="margin-top:8px;width:100%">Clear History</button>
+    </div>
+
+    <div class="divider"></div>
+
     <!-- Actions -->
     <div id="actionsSection" style="display:none">
-      <div class="section-title">📥 Download</div>
+      <div class="section-title">📥 Download & Export</div>
       <div id="downloadLinks" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button class="btn btn-secondary btn-sm" onclick="exportResults()" style="margin-top:8px;width:100%" aria-label="Export scan results as JSON">📤 Export Results (JSON)</button>
     </div>
 
   </aside>

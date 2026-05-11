@@ -34,7 +34,7 @@ This tool solves all of these by intelligent filtering, fast static analysis, se
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/project-prompter.git
+git clone https://github.com/canblmz1/Project-Prompt-Generator.git
 cd project-prompter
 
 # Create a virtual environment
